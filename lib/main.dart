@@ -2,32 +2,44 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'paddy_add_map_screen.dart';
+import 'package:latlong2/latlong.dart';
+import 'data_model.dart';
+import 'dart:convert';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+
+const String kBaseUrl = String.fromEnvironment(
+  'AMBERLOGIX_BASE_URL',
+  defaultValue: 'https://dev.amberlogix.co.jp',
+);
 
 void main() {
   runApp(const AppRoot());
 }
 
-/// ====== App State（いったんダミー。後でAPIやDBに差し替え） ======
+/// ====== App State（ダミー） ======
 class AppState extends ChangeNotifier {
   final List<FieldModel> fields = [
-    FieldModel(
-      id: 'a',
-      name: '圃場A',
-      waterLevelText: '水位 12cm',
-      waterTempText: '水温 18℃',
-      isPending: false,
-      works: [
-        WorkLog(
-          id: 'w1',
-          title: '作業A',
-          timeText: '00時00分',
-          actionText: '給水開',
-          status: '完了',
-          assignee: '○○××',
-          comments: ['了解です', '写真確認しました'],
-        ),
-      ],
-    ),
+    // FieldModel(
+    //   id: 'a',
+    //   name: '圃場A',
+    //   waterLevelText: '水位 12cm',
+    //   waterTempText: '水温 18℃',
+    //   imageUrl: '',
+    //   isPending: false,
+    //   works: [
+    //     WorkLog(
+    //       id: 'w1',
+    //       title: '作業A',
+    //       timeText: '00時00分',
+    //       actionText: '給水開',
+    //       status: '完了',
+    //       assignee: '○○××',
+    //       comments: ['了解です', '写真確認しました'],
+    //     ),
+    //   ],
+    // ),
   ];
 
   void addPendingField({
@@ -42,6 +54,7 @@ class AppState extends ChangeNotifier {
         name: name,
         waterLevelText: '水位 -',
         waterTempText: '水温 -',
+        imageUrl: '',
         isPending: true,
         pendingText: '登録申請中',
         pref: pref,
@@ -53,7 +66,188 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void applyPaddyFieldUpdate(PaddyField updated) {
+    final idx = fields.indexWhere((f) => f.id == updated.id);
+    if (idx == -1) return;
+    fields[idx].name = updated.name;
+    notifyListeners();
+  }
+
   FieldModel getFieldById(String id) => fields.firstWhere((f) => f.id == id);
+
+  bool isSyncing = false;
+  String? syncError;
+
+  Future<void> syncDevicesAndLatest() async {
+    if (isSyncing) return;
+
+    isSyncing = true;
+    syncError = null;
+    notifyListeners();
+
+    try {
+      // 1) 圃場一覧（get_devices）
+      final devicesRes = await http.get(
+        Uri.parse('$kBaseUrl/app/paddy/get_devices'),
+      );
+      if (devicesRes.statusCode != 200) {
+        throw Exception('圃場一覧(get_devices)の取得に失敗: ${devicesRes.statusCode}');
+      }
+
+      final List<dynamic> devicesData = json.decode(
+        utf8.decode(devicesRes.bodyBytes),
+      );
+
+      // 既存の圃場（申請中含む）を保持しつつ、APIにある圃場をマージ
+      final existingById = {for (final f in fields) f.id: f};
+
+      for (final d in devicesData) {
+        if (d is! Map<String, dynamic>) continue;
+
+        // zipのPaddyField.fromJsonを使って padid/paddyname を取り出す
+        final apiField = PaddyField.fromJson(d);
+
+        final existing = existingById[apiField.id];
+        if (existing != null) {
+          existing.name = apiField.name;
+          existing.imageUrl = apiField.imageUrl;
+          existing.isPending = false;
+          existing.pendingText = null;
+        } else {
+          fields.add(
+            FieldModel(
+              id: apiField.id,
+              name: apiField.name,
+              imageUrl: apiField.imageUrl,
+              waterLevelText: '水位 -',
+              waterTempText: '水温 -',
+              isPending: false,
+              works: const [],
+            ),
+          );
+        }
+      }
+
+      // 2) 各圃場の最新値（get_device_data）
+      final now = DateTime.now();
+      final toDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
+      final fromDate = DateFormat(
+        'yyyy-MM-dd HH:mm:ss',
+      ).format(now.subtract(const Duration(days: 1)));
+
+      await Future.wait(
+        fields.where((f) => !f.isPending).map((f) async {
+          try {
+            final url =
+                '$kBaseUrl/app/paddy/get_device_data?padid=${Uri.encodeQueryComponent(f.id)}'
+                '&fromd=${Uri.encodeQueryComponent(fromDate)}'
+                '&tod=${Uri.encodeQueryComponent(toDate)}';
+
+            final res = await http.get(Uri.parse(url));
+            if (res.statusCode != 200) return;
+
+            final List<dynamic> data = json.decode(utf8.decode(res.bodyBytes));
+            if (data.isEmpty) return;
+
+            // measured_date が一番新しいデータを拾う（順番に依存しない）
+            Map<String, dynamic>? latest;
+            DateTime? latestDt;
+            for (final it in data) {
+              if (it is! Map<String, dynamic>) continue;
+              final md = it['measured_date'];
+              if (md == null) continue;
+
+              DateTime dt;
+              try {
+                dt = DateTime.parse(md.toString());
+              } catch (_) {
+                continue;
+              }
+
+              if (latestDt == null || dt.isAfter(latestDt)) {
+                latestDt = dt;
+                latest = it;
+              }
+            }
+            if (latest == null) return;
+
+            final waterMm = (latest!['waterlevel'] as num?)?.toDouble();
+            final waterCm = waterMm == null ? null : (waterMm / 10.0);
+
+            // 温度は「temperatureが入ってる中で一番新しいやつ」を拾う
+            Map<String, dynamic>? tempItem;
+            DateTime? tempDt;
+            for (final it in data) {
+              if (it is! Map<String, dynamic>) continue;
+              if (it['temperature'] == null) continue;
+
+              final md = it['measured_date'];
+              if (md == null) continue;
+
+              DateTime dt;
+              try {
+                dt = DateTime.parse(md.toString());
+              } catch (_) {
+                continue;
+              }
+
+              if (tempDt == null || dt.isAfter(tempDt)) {
+                tempDt = dt;
+                tempItem = it;
+              }
+            }
+            final temp = (tempItem?['temperature'] as num?)?.toDouble();
+
+            // カード表示用テキストを更新
+            f.waterLevelText = waterCm == null
+                ? '水位 -'
+                : '水位 ${waterCm.toStringAsFixed(1)}cm';
+            f.waterTempText = temp == null
+                ? '水温 -'
+                : '水温 ${temp.toStringAsFixed(0)}℃';
+          } catch (_) {
+            // 1圃場の失敗で全体を落とさない
+          }
+        }),
+      );
+    } catch (e) {
+      syncError = 'APIエラー: $e';
+    } finally {
+      isSyncing = false;
+      notifyListeners();
+    }
+  }
+}
+
+double? _firstDouble(String s) {
+  final m = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(s);
+  if (m == null) return null;
+  return double.tryParse(m.group(1)!);
+}
+
+int? _firstInt(String s) {
+  final d = _firstDouble(s);
+  if (d == null) return null;
+  return d.round();
+}
+
+PaddyField _toPaddyField(FieldModel f) {
+  final waterCm = _firstDouble(f.waterLevelText); // 例: "水位 12cm" -> 12
+  final tempC = _firstInt(f.waterTempText); // 例: "水温 18℃" -> 18
+
+  return PaddyField(
+    id: f.id, // ※zip側は padid としてAPI叩くので、後で本物のIDにする想定
+    name: f.name,
+    imageUrl: '', // 画像URLがまだ無いなら空でOK（設定画面でNo Image表示）
+    time: null,
+    temperature: tempC,
+    waterLevel: waterCm,
+    location: const LatLng(35.99472, 138.24639), // 仮（後で圃場の座標に差し替え）
+    offset: 0,
+    enableAlert: false,
+    alertThUpper: 0,
+    alertThLower: 0,
+  );
 }
 
 class AppStateScope extends InheritedNotifier<AppState> {
@@ -121,6 +315,7 @@ class FieldModel {
     required this.waterTempText,
     required this.isPending,
     required this.works,
+    this.imageUrl,
     this.pendingText,
     this.pref,
     this.city,
@@ -135,6 +330,8 @@ class FieldModel {
 
   bool isPending;
   String? pendingText;
+
+  String? imageUrl;
 
   String? pref;
   String? city;
@@ -448,8 +645,33 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
 
 /// ====== 画面: 圃場一覧 ======
 /// PDF: 「圃場一覧」「＋」「水位」「水温」「天気情報」「開閉依頼」 :contentReference[oaicite:7]{index=7}
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sync(showSnack: false);
+    });
+  }
+
+  Future<void> _sync({required bool showSnack}) async {
+    final state = AppStateScope.of(context);
+    await state.syncDevicesAndLatest();
+
+    if (!mounted) return;
+    if (showSnack && state.syncError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(state.syncError!)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -469,6 +691,16 @@ class HomeScreen extends StatelessWidget {
         title: const Text('圃場一覧'),
         actions: [
           IconButton(
+            icon: state.isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            onPressed: state.isSyncing ? null : () => _sync(showSnack: true),
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
             onPressed: () async {
               final selectedUuids = await Navigator.push<List<String>>(
@@ -480,7 +712,6 @@ class HomeScreen extends StatelessWidget {
               if (!context.mounted) return;
               if (selectedUuids == null || selectedUuids.isEmpty) return;
 
-              // いったん「次へ（契約プラン）」へ流す
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -520,19 +751,22 @@ class HomeScreen extends StatelessWidget {
       body: AnimatedBuilder(
         animation: state,
         builder: (_, __) {
-          return ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              _WeatherInfoCard(
-                onTap: () {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('天気情報（仮）')));
-                },
-              ),
-              const SizedBox(height: 10),
-              ...state.fields.map((f) => _FieldCard(field: f)),
-            ],
+          return RefreshIndicator(
+            onRefresh: () => _sync(showSnack: false),
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                _WeatherInfoCard(
+                  onTap: () {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('天気情報（仮）')));
+                  },
+                ),
+                const SizedBox(height: 10),
+                ...state.fields.map((f) => _FieldCard(field: f)),
+              ],
+            ),
           );
         },
       ),
@@ -571,20 +805,44 @@ class _FieldCard extends StatelessWidget {
             ),
           );
         },
+
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 画像（前と同じ左側配置 + 少し大きく）
-              Container(
-                width: 96,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: Colors.black12,
-                  borderRadius: BorderRadius.circular(10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 96,
+                  height: 72,
+                  child: (field.imageUrl != null && field.imageUrl!.isNotEmpty)
+                      ? Image.network(
+                          field.imageUrl!,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.black12,
+                              child: const Center(
+                                child: Icon(Icons.broken_image_outlined),
+                              ),
+                            );
+                          },
+                        )
+                      : Container(
+                          color: Colors.black12,
+                          child: const Center(
+                            child: Icon(Icons.image_outlined),
+                          ),
+                        ),
                 ),
-                child: const Icon(Icons.image_outlined),
               ),
               const SizedBox(width: 12),
 
@@ -903,6 +1161,8 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
 /// ====== 画面: 圃場詳細（グラフ + 作業履歴 + 設定へ） ======
 /// PDF: 「圃場A」「グラフ」「1日/3日/7日」「作業履歴」「設定」 :contentReference[oaicite:11]{index=11}
+enum ChartDataType { waterLevel, temperature }
+
 class FieldDetailScreen extends StatefulWidget {
   const FieldDetailScreen({super.key, required this.fieldId});
   final String fieldId;
@@ -914,10 +1174,134 @@ class FieldDetailScreen extends StatefulWidget {
 class _FieldDetailScreenState extends State<FieldDetailScreen> {
   String range = '1日';
 
+  ChartDataType _chartType = ChartDataType.waterLevel;
+
+  DateTime _startDate = DateTime.now().subtract(const Duration(days: 1));
+  DateTime _endDate = DateTime.now();
+
+  bool _isLoading = true;
+  String? _error;
+
+  List<FlSpot> _waterLevelSpots = [];
+  List<FlSpot> _temperatureSpots = [];
+
+  // zipは固定URLだったけど、後で差し替えやすいように一応定数化
+  static const String _baseUrl = String.fromEnvironment(
+    'AMBERLOGIX_BASE_URL',
+    defaultValue: 'https://dev.amberlogix.co.jp',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _applyRange();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchDetailsData();
+    });
+  }
+
+  void _applyRange() {
+    final now = DateTime.now();
+    final days = (range == '1日')
+        ? 1
+        : (range == '3日')
+        ? 3
+        : 7;
+    _endDate = now;
+    _startDate = now.subtract(Duration(days: days));
+  }
+
+  Future<void> _fetchDetailsData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final state = AppStateScope.of(context);
+      final field = state.getFieldById(widget.fieldId);
+
+      final fromDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(_startDate);
+      final toDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(_endDate);
+
+      final url =
+          '$_baseUrl/app/paddy/get_device_data?padid=${field.id}&fromd=$fromDate&tod=$toDate';
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode != 200) {
+        throw Exception('サーバーエラー: ${response.statusCode}');
+      }
+
+      final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+
+      final newWater = <FlSpot>[];
+      final newTemp = <FlSpot>[];
+
+      for (final item in data) {
+        final measuredDate = DateTime.parse(item['measured_date']);
+
+        // zip同様：waterlevelはmm → cm
+        final waterLevelMm = (item['waterlevel'] as num?)?.toDouble() ?? 0.0;
+        final waterLevelCm = waterLevelMm / 10.0;
+
+        final temperature = (item['temperature'] as num?)?.toDouble();
+
+        newWater.add(
+          FlSpot(measuredDate.millisecondsSinceEpoch.toDouble(), waterLevelCm),
+        );
+
+        if (temperature != null) {
+          newTemp.add(
+            FlSpot(measuredDate.millisecondsSinceEpoch.toDouble(), temperature),
+          );
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _waterLevelSpots = newWater;
+        _temperatureSpots = newTemp;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'データ取得に失敗しました: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
+
+  LineChartData _buildChartData(List<FlSpot> spots) {
+    final cs = Theme.of(context).colorScheme;
+
+    return LineChartData(
+      gridData: const FlGridData(show: true),
+      titlesData: const FlTitlesData(show: false),
+      borderData: FlBorderData(show: false),
+      lineTouchData: const LineTouchData(enabled: true),
+      lineBarsData: [
+        LineChartBarData(
+          spots: spots,
+          isCurved: false,
+          barWidth: 2,
+          color: cs.primary,
+          dotData: const FlDotData(show: false),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppStateScope.of(context);
     final field = state.getFieldById(widget.fieldId);
+
+    final spots = (_chartType == ChartDataType.waterLevel)
+        ? _waterLevelSpots
+        : _temperatureSpots;
 
     return Scaffold(
       appBar: AppBar(
@@ -939,6 +1323,7 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          // ===== グラフ（PDFのUIそのまま）=====
           Row(
             children: [
               const Expanded(
@@ -947,6 +1332,30 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
+
+              // ついでに「水位/水温」切替（UIはほぼPDFのまま）
+              PopupMenuButton<ChartDataType>(
+                tooltip: '表示切替',
+                initialValue: _chartType,
+                onSelected: (v) => setState(() => _chartType = v),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: ChartDataType.waterLevel,
+                    child: Text('水位'),
+                  ),
+                  PopupMenuItem(
+                    value: ChartDataType.temperature,
+                    child: Text('水温'),
+                  ),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    _chartType == ChartDataType.waterLevel ? '水位 ▾' : '水温 ▾',
+                  ),
+                ),
+              ),
+
               DropdownButton<String>(
                 value: range,
                 items: const [
@@ -954,20 +1363,37 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
                   DropdownMenuItem(value: '3日', child: Text('3日')),
                   DropdownMenuItem(value: '7日', child: Text('7日')),
                 ],
-                onChanged: (v) => setState(() => range = v ?? '1日'),
+                onChanged: (v) {
+                  setState(() => range = v ?? '1日');
+                  _applyRange();
+                  _fetchDetailsData();
+                },
               ),
             ],
           ),
           const SizedBox(height: 8),
+
           Container(
             height: 180,
             decoration: BoxDecoration(
               color: Colors.black12,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Center(child: Text('グラフ（$range） ※仮')),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : (_error != null)
+                ? Center(child: Text(_error!))
+                : (spots.isEmpty)
+                ? const Center(child: Text('データがありません'))
+                : Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: LineChart(_buildChartData(spots)),
+                  ),
           ),
+
           const SizedBox(height: 16),
+
+          // ===== 作業履歴（今まで通り）=====
           const Text('作業履歴', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           if (field.works.isEmpty)

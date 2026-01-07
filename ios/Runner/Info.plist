@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>圃場の位置を地図に表示するために位置情報を使用します。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>圃場の画像を選択するために写真ライブラリを使用します。</string>
 </dict>
 </plist>
