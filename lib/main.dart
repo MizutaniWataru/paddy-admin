@@ -766,16 +766,10 @@ class _HomeScreenState extends State<HomeScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               children: [
-                _WeatherInfoCard(
-                  onTap: () {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('天気情報（仮）')));
-                  },
-                ),
+                const _WeatherInfoStrip(),
+
                 const SizedBox(height: 10),
 
-                // ★ここがポイント：初回ロードが終わるまでは空表示を出さない
                 if (!state.hasLoadedOnce)
                   const _LoadingFieldsCard()
                 else if (state.fields.isEmpty)
@@ -791,8 +785,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                       if (!context.mounted) return;
-                      if (selectedUuids == null || selectedUuids.isEmpty)
+                      if (selectedUuids == null || selectedUuids.isEmpty) {
                         return;
+                      }
 
                       Navigator.push(
                         context,
@@ -817,16 +812,117 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _WeatherInfoCard extends StatelessWidget {
-  const _WeatherInfoCard({required this.onTap});
-  final VoidCallback onTap;
+class _WeatherInfoStrip extends StatelessWidget {
+  const _WeatherInfoStrip();
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Card(
-      child: ListTile(
-        title: const Center(child: Text('天気情報')),
-        onTap: onTap,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
+        child: Row(
+          children: const [
+            Expanded(
+              child: _WeatherMetric(
+                icon: Icons.wb_sunny_outlined,
+                iconColor: Color(0xFFF4C542),
+                title: '天気',
+                value: '晴れ',
+              ),
+            ),
+            _WeatherDivider(),
+            Expanded(
+              child: _WeatherMetric(
+                icon: Icons.thermostat_outlined,
+                iconColor: Color(0xFFE53935),
+                title: '気温',
+                value: '7℃',
+              ),
+            ),
+            _WeatherDivider(),
+            Expanded(
+              flex: 2,
+              child: _WeatherMetric(
+                icon: Icons.water_drop_outlined,
+                iconColor: Color(0xFF1E88E5),
+                title: '12時間予測降水量',
+                value: '2mm',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeatherDivider extends StatelessWidget {
+  const _WeatherDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: 1,
+      height: 36,
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      color: cs.outlineVariant,
+    );
+  }
+}
+
+class _WeatherMetric extends StatelessWidget {
+  const _WeatherMetric({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: iconColor),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value, // ダミー値
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ],
       ),
     );
   }
