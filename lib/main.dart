@@ -754,6 +754,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return RefreshIndicator(
             onRefresh: () => _sync(showSnack: false),
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               children: [
                 _WeatherInfoCard(
@@ -764,7 +765,38 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
-                ...state.fields.map((f) => _FieldCard(field: f)),
+
+                // ★ ここが追加：圃場が0件なら空状態を表示
+                if (state.fields.isEmpty)
+                  _EmptyFieldsCard(
+                    isSyncing: state.isSyncing,
+                    errorText: state.syncError,
+                    onRefresh: () => _sync(showSnack: true),
+                    onAdd: () async {
+                      final selectedUuids = await Navigator.push<List<String>>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const PaddyAddFromMapScreen(),
+                        ),
+                      );
+                      if (!context.mounted) return;
+                      if (selectedUuids == null || selectedUuids.isEmpty)
+                        return;
+
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FieldRegisterPlanScreen(
+                            pref: '',
+                            city: '',
+                            fieldName: '圃場（地図追加）',
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                else
+                  ...state.fields.map((f) => _FieldCard(field: f)),
               ],
             ),
           );
@@ -784,6 +816,80 @@ class _WeatherInfoCard extends StatelessWidget {
       child: ListTile(
         title: const Center(child: Text('天気情報')),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _EmptyFieldsCard extends StatelessWidget {
+  const _EmptyFieldsCard({
+    required this.isSyncing,
+    required this.errorText,
+    required this.onRefresh,
+    required this.onAdd,
+  });
+
+  final bool isSyncing;
+  final String? errorText;
+  final VoidCallback onRefresh;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Icon(Icons.grass_outlined, size: 48),
+            const SizedBox(height: 8),
+            const Text(
+              '圃場がありません',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '右上の「＋」から追加するか、\n引っ張って更新してね。',
+              textAlign: TextAlign.center,
+            ),
+
+            if (errorText != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                errorText!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
+
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isSyncing ? null : onRefresh,
+                    icon: isSyncing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(isSyncing ? '更新中…' : '更新'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add),
+                    label: const Text('追加'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
