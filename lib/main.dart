@@ -77,6 +77,8 @@ class AppState extends ChangeNotifier {
   bool isSyncing = false;
   String? syncError;
 
+  bool hasLoadedOnce = false;
+
   Future<void> syncDevicesAndLatest() async {
     if (isSyncing) return;
 
@@ -224,6 +226,7 @@ class AppState extends ChangeNotifier {
       syncError = 'APIエラー: $e';
     } finally {
       isSyncing = false;
+      hasLoadedOnce = true;
       notifyListeners();
     }
   }
@@ -772,8 +775,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // ★ ここが追加：圃場が0件なら空状態を表示
-                if (state.fields.isEmpty)
+                // ★ここがポイント：初回ロードが終わるまでは空表示を出さない
+                if (!state.hasLoadedOnce)
+                  const _LoadingFieldsCard()
+                else if (state.fields.isEmpty)
                   _EmptyFieldsCard(
                     isSyncing: state.isSyncing,
                     errorText: state.syncError,
@@ -786,9 +791,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                       if (!context.mounted) return;
-                      if (selectedUuids == null || selectedUuids.isEmpty) {
+                      if (selectedUuids == null || selectedUuids.isEmpty)
                         return;
-                      }
 
                       Navigator.push(
                         context,
@@ -855,10 +859,7 @@ class _EmptyFieldsCard extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            const Text(
-              '右上の「＋」から追加するか、\n引っ張って更新してください。',
-              textAlign: TextAlign.center,
-            ),
+            const Text('圃場または更新を行ってください。', textAlign: TextAlign.center),
 
             if (errorText != null) ...[
               const SizedBox(height: 10),
@@ -1012,6 +1013,30 @@ class _FieldCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingFieldsCard extends StatelessWidget {
+  const _LoadingFieldsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: const [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('読み込み中…'),
+          ],
         ),
       ),
     );
@@ -1694,8 +1719,8 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
   final currentCtrl = TextEditingController(text: '（仮）');
 
   String plan = 'ベーシック';
-  String setMethod = '一括'; // 一括 / 個別
-  String displayMethod = '相対値'; // 相対値 / 絶対値
+  String setMethod = '一括';
+  String displayMethod = '相対値';
 
   bool _loading = true;
   String? _loadError;
@@ -1708,12 +1733,58 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
   final tempUpperCtrl = TextEditingController();
   final tempLowerCtrl = TextEditingController();
 
+  bool _dirty = false;
+  bool _saving = false;
+  bool _suppressDirty = false;
+
+  // ★追加：初期状態（ベースライン）
+  bool _baselineReady = false;
+  late String _baseName;
+  late String _basePlan;
+  late String _baseSetMethod;
+  late String _baseDisplayMethod;
+  late int _baseWaterUpper;
+  late int _baseWaterLower;
+  late int _baseTempUpper;
+  late int _baseTempLower;
+
+  int _asInt(TextEditingController c, int fallback) =>
+      int.tryParse(c.text.trim()) ?? fallback;
+
+  void _commitBaseline() {
+    _baseName = nameCtrl.text.trim();
+    _basePlan = plan;
+    _baseSetMethod = setMethod;
+    _baseDisplayMethod = displayMethod;
+    _baseWaterUpper = _asInt(waterUpperCtrl, 0);
+    _baseWaterLower = _asInt(waterLowerCtrl, 0);
+    _baseTempUpper = _asInt(tempUpperCtrl, 0);
+    _baseTempLower = _asInt(tempLowerCtrl, 0);
+    _baselineReady = true;
+    _dirty = false;
+  }
+
+  void _recomputeDirty() {
+    if (_suppressDirty || !_baselineReady) return;
+
+    final changed =
+        nameCtrl.text.trim() != _baseName ||
+        plan != _basePlan ||
+        setMethod != _baseSetMethod ||
+        displayMethod != _baseDisplayMethod ||
+        _asInt(waterUpperCtrl, 0) != _baseWaterUpper ||
+        _asInt(waterLowerCtrl, 0) != _baseWaterLower ||
+        _asInt(tempUpperCtrl, 0) != _baseTempUpper ||
+        _asInt(tempLowerCtrl, 0) != _baseTempLower;
+
+    if (changed == _dirty) return;
+    setState(() => _dirty = changed);
+  }
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadFromServer();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFromServer());
   }
 
   @override
@@ -1727,159 +1798,226 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     super.dispose();
   }
 
+  Future<bool> _confirmLeaveIfDirty() async {
+    if (!_dirty) return true;
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('保存しますか？'),
+          content: const Text('変更内容が保存されていません。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('破棄'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final ok = await _saveChanges();
+                if (!ctx.mounted) return;
+                if (ok) {
+                  Navigator.pop(ctx, true);
+                } else {
+                  Navigator.pop(ctx, false);
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
+  Future<bool> _saveChanges() async {
+    if (_saving) return false;
+    setState(() => _saving = true);
+
+    final scaffold = ScaffoldMessenger.of(context);
+    final appState = AppStateScope.of(context);
+    final field = appState.getFieldById(widget.fieldId);
+
+    final upper = int.tryParse(waterUpperCtrl.text) ?? field.alertThUpper;
+    final lower = int.tryParse(waterLowerCtrl.text) ?? field.alertThLower;
+
+    final payload = {
+      'padid': widget.fieldId,
+      'paddyname': nameCtrl.text.trim().isEmpty
+          ? field.name
+          : nameCtrl.text.trim(),
+      'offset': _serverOffset,
+      'enable_alert': _serverEnableAlert ? 1 : 0,
+      'alert_th_upper': upper,
+      'alert_th_lower': lower,
+    };
+
+    try {
+      final res = await http.post(
+        Uri.parse('$kBaseUrl/app/paddy/update_device'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (res.statusCode != 200) {
+        throw Exception('update_device: ${res.statusCode}');
+      }
+
+      appState.updateField(
+        widget.fieldId,
+        name: payload['paddyname'] as String,
+        alertThUpper: upper,
+        alertThLower: lower,
+      );
+
+      if (!mounted) return false;
+
+      setState(() {
+        _commitBaseline();
+      });
+
+      scaffold.showSnackBar(const SnackBar(content: Text('変更しました')));
+      return true;
+    } catch (e) {
+      if (mounted) {
+        scaffold.showSnackBar(SnackBar(content: Text('保存に失敗: $e')));
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final state = AppStateScope.of(context);
-    final field = state.getFieldById(widget.fieldId);
+    return WillPopScope(
+      onWillPop: _confirmLeaveIfDirty,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('設定')),
+        body: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            if (_loading) const LinearProgressIndicator(),
+            if (_loadError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _loadError!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
 
-    plan = field.plan ?? plan;
+            const SizedBox(height: 12),
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          if (_loading) const LinearProgressIndicator(),
-          if (_loadError != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _loadError!,
-                style: const TextStyle(color: Colors.red),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: '圃場名'),
+              onChanged: (_) => _recomputeDirty(),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: currentCtrl,
+              decoration: const InputDecoration(labelText: '現在水位'),
+              onChanged: (_) => _recomputeDirty(),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: plan,
+              decoration: const InputDecoration(labelText: '契約プラン'),
+              items: const [
+                DropdownMenuItem(value: 'ベーシック', child: Text('ベーシック')),
+                DropdownMenuItem(value: 'スタンダード', child: Text('スタンダード')),
+              ],
+              onChanged: (v) => {
+                setState(() => plan = v ?? plan),
+                _recomputeDirty(),
+              },
+            ),
+            const SizedBox(height: 12),
+            const Text('設定方法'),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: '一括', label: Text('一括')),
+                ButtonSegment(value: '個別', label: Text('個別')),
+              ],
+              selected: {setMethod},
+              onSelectionChanged: (newSelection) {
+                setState(() => setMethod = newSelection.first);
+                _recomputeDirty();
+              },
+            ),
+            const SizedBox(height: 12),
+
+            LabeledSection(
+              title: '個別設定',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('水位表示方法'),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: '相対値', label: Text('相対値')),
+                      ButtonSegment(value: '絶対値', label: Text('絶対値')),
+                    ],
+                    selected: {displayMethod},
+                    onSelectionChanged: (newSelection) {
+                      setState(() => displayMethod = newSelection.first);
+                      _recomputeDirty();
+                    },
+                  ),
+
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: waterUpperCtrl,
+                    decoration: const InputDecoration(labelText: '水位上限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: waterLowerCtrl,
+                    decoration: const InputDecoration(labelText: '水位下限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: tempUpperCtrl,
+                    decoration: const InputDecoration(labelText: '水温上限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: tempLowerCtrl,
+                    decoration: const InputDecoration(labelText: '水温下限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                ],
               ),
             ),
 
-          const SizedBox(height: 12),
-
-          TextField(
-            controller: nameCtrl,
-            decoration: const InputDecoration(labelText: '圃場名'),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: currentCtrl,
-            decoration: const InputDecoration(labelText: '現在水位'),
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            initialValue: plan,
-            decoration: const InputDecoration(labelText: '契約プラン'),
-            items: const [
-              DropdownMenuItem(value: 'ベーシック', child: Text('ベーシック')),
-              DropdownMenuItem(value: 'スタンダード', child: Text('スタンダード')),
-            ],
-            onChanged: (v) => setState(() => plan = v ?? plan),
-          ),
-          const SizedBox(height: 12),
-          const Text('設定方法'),
-          const SizedBox(height: 8),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: '一括', label: Text('一括')),
-              ButtonSegment(value: '個別', label: Text('個別')),
-            ],
-            selected: {setMethod},
-            onSelectionChanged: (newSelection) {
-              setState(() => setMethod = newSelection.first);
-            },
-          ),
-          const SizedBox(height: 8),
-          const Text('水位表示方法'),
-          const SizedBox(height: 8),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: '相対値', label: Text('相対値')),
-              ButtonSegment(value: '絶対値', label: Text('絶対値')),
-            ],
-            selected: {displayMethod},
-            onSelectionChanged: (newSelection) {
-              setState(() => displayMethod = newSelection.first);
-            },
-          ),
-
-          const SizedBox(height: 10),
-          TextField(
-            controller: waterUpperCtrl,
-            decoration: const InputDecoration(labelText: '水位上限'),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: waterLowerCtrl,
-            decoration: const InputDecoration(labelText: '水位下限'),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: tempUpperCtrl,
-            decoration: const InputDecoration(labelText: '水温上限'),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: tempLowerCtrl,
-            decoration: const InputDecoration(labelText: '水温下限'),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 12),
-          PrimaryButton(
-            label: '変更',
-            onPressed: _loading
-                ? null
-                : () async {
-                    final scaffold = ScaffoldMessenger.of(context);
-                    final appState = AppStateScope.of(context);
-                    final field = appState.getFieldById(widget.fieldId);
-
-                    final upper =
-                        int.tryParse(waterUpperCtrl.text) ?? field.alertThUpper;
-                    final lower =
-                        int.tryParse(waterLowerCtrl.text) ?? field.alertThLower;
-
-                    final payload = {
-                      'padid': widget.fieldId,
-                      'paddyname': nameCtrl.text.trim().isEmpty
-                          ? field.name
-                          : nameCtrl.text.trim(),
-                      'offset': _serverOffset,
-                      'enable_alert': _serverEnableAlert ? 1 : 0,
-                      'alert_th_upper': upper,
-                      'alert_th_lower': lower,
-                    };
-
-                    try {
-                      final res = await http.post(
-                        Uri.parse('$kBaseUrl/app/paddy/update_device'),
-                        headers: {'Content-Type': 'application/json'},
-                        body: jsonEncode(payload),
-                      );
-
-                      if (res.statusCode != 200) {
-                        throw Exception('update_device: ${res.statusCode}');
-                      }
-
-                      field.name = payload['paddyname'] as String;
-                      field.alertThUpper = upper;
-                      field.alertThLower = lower;
-
-                      appState.updateField(
-                        widget.fieldId,
-                        name: payload['paddyname'] as String,
-                        alertThUpper: upper,
-                        alertThLower: lower,
-                      );
-
-                      scaffold.showSnackBar(
-                        const SnackBar(content: Text('変更しました')),
-                      );
-                    } catch (e) {
-                      scaffold.showSnackBar(
-                        SnackBar(content: Text('保存に失敗: $e')),
-                      );
-                    }
-                  },
-          ),
-        ],
+            const SizedBox(height: 12),
+            PrimaryButton(
+              label: _saving ? '保存中…' : '変更',
+              onPressed: (_loading || _saving || !_dirty)
+                  ? null
+                  : () async {
+                      await _saveChanges();
+                    },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1913,7 +2051,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
       final apiField = PaddyField.fromJson(found);
 
-      // ローカルStateも更新（一覧と整合させる）
+      // ローカルStateも更新
       final state = AppStateScope.of(context);
       final field = state.getFieldById(widget.fieldId);
 
@@ -1932,11 +2070,24 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
         alertThLower: apiField.alertThLower,
       );
 
-      // UIに反映（表示項目は今のまま）
-      nameCtrl.text = apiField.name;
-      currentCtrl.text = field.waterLevelText; // 現在水位は一覧で持ってる表示を流用
-      waterUpperCtrl.text = apiField.alertThUpper.toString();
-      waterLowerCtrl.text = apiField.alertThLower.toString();
+      // UIに反映
+      _suppressDirty = true;
+      try {
+        nameCtrl.text = apiField.name;
+        currentCtrl.text = field.waterLevelText;
+        waterUpperCtrl.text = apiField.alertThUpper.toString();
+        waterLowerCtrl.text = apiField.alertThLower.toString();
+
+        _serverOffset = apiField.offset;
+        _serverEnableAlert = apiField.enableAlert;
+      } finally {
+        _suppressDirty = false;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _commitBaseline();
+      });
 
       // UIに出さないけど保存で使う
       _serverOffset = apiField.offset;
@@ -1952,6 +2103,45 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+}
+
+class LabeledSection extends StatelessWidget {
+  const LabeledSection({super.key, required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final bg = Theme.of(context).scaffoldBackgroundColor;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 18, 12, 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: cs.outlineVariant),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: child,
+        ),
+        Positioned(
+          left: 12,
+          top: -10,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            color: bg,
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
