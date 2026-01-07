@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'paddy_add_map_screen.dart';
-import 'package:latlong2/latlong.dart';
 import 'data_model.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
@@ -182,7 +181,7 @@ class AppState extends ChangeNotifier {
             }
             if (latest == null) return;
 
-            final waterMm = (latest!['waterlevel'] as num?)?.toDouble();
+            final waterMm = (latest['waterlevel'] as num?)?.toDouble();
             final waterCm = waterMm == null ? null : (waterMm / 10.0);
 
             // 温度は「temperatureが入ってる中で一番新しいやつ」を拾う
@@ -228,50 +227,36 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
-}
 
-double? _firstDouble(String s) {
-  final m = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(s);
-  if (m == null) return null;
-  return double.tryParse(m.group(1)!);
-}
-
-int? _firstInt(String s) {
-  final d = _firstDouble(s);
-  if (d == null) return null;
-  return d.round();
-}
-
-PaddyField _toPaddyField(FieldModel f) {
-  final waterCm = _firstDouble(f.waterLevelText); // 例: "水位 12cm" -> 12
-  final tempC = _firstInt(f.waterTempText); // 例: "水温 18℃" -> 18
-
-  return PaddyField(
-    id: f.id, // ※zip側は padid としてAPI叩くので、後で本物のIDにする想定
-    name: f.name,
-    imageUrl: '', // 画像URLがまだ無いなら空でOK（設定画面でNo Image表示）
-    time: null,
-    temperature: tempC,
-    waterLevel: waterCm,
-    location: const LatLng(35.99472, 138.24639), // 仮（後で圃場の座標に差し替え）
-    offset: 0,
-    enableAlert: false,
-    alertThUpper: 0,
-    alertThLower: 0,
-  );
+  void updateField(
+    String id, {
+    String? name,
+    int? offset,
+    bool? enableAlert,
+    int? alertThUpper,
+    int? alertThLower,
+  }) {
+    final f = getFieldById(id);
+    if (name != null) f.name = name;
+    if (offset != null) f.offset = offset;
+    if (enableAlert != null) f.enableAlert = enableAlert;
+    if (alertThUpper != null) f.alertThUpper = alertThUpper;
+    if (alertThLower != null) f.alertThLower = alertThLower;
+    notifyListeners();
+  }
 }
 
 class AppStateScope extends InheritedNotifier<AppState> {
   const AppStateScope({
     super.key,
     required AppState notifier,
-    required Widget child,
-  }) : super(notifier: notifier, child: child);
+    required super.child,
+  }) : super(notifier: notifier);
 
   static AppState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppStateScope>();
     if (scope == null || scope.notifier == null) {
-      throw StateError('AppStateScope が見つからないよ');
+      throw StateError('AppStateScope が見つかりません。');
     }
     return scope.notifier!;
   }
@@ -724,17 +709,17 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () async {
+              final nav = Navigator.of(context);
               final selectedUuids = await Navigator.push<List<String>>(
                 context,
                 MaterialPageRoute(
                   builder: (_) => const PaddyAddFromMapScreen(),
                 ),
               );
-              if (!context.mounted) return;
+              if (!mounted) return;
               if (selectedUuids == null || selectedUuids.isEmpty) return;
 
-              Navigator.push(
-                context,
+              nav.push(
                 MaterialPageRoute(
                   builder: (_) => FieldRegisterPlanScreen(
                     pref: '',
@@ -771,7 +756,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: AnimatedBuilder(
         animation: state,
-        builder: (_, __) {
+        builder: (_, _) {
           return RefreshIndicator(
             onRefresh: () => _sync(showSnack: false),
             child: ListView(
@@ -801,8 +786,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                       if (!context.mounted) return;
-                      if (selectedUuids == null || selectedUuids.isEmpty)
+                      if (selectedUuids == null || selectedUuids.isEmpty) {
                         return;
+                      }
 
                       Navigator.push(
                         context,
@@ -1396,8 +1382,9 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
       if (!mounted) return;
       setState(() => _error = 'データ取得に失敗しました: $e');
     } finally {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1656,7 +1643,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                     constraints: const BoxConstraints(maxWidth: 280),
                     decoration: BoxDecoration(
                       color: isMine
-                          ? Colors.teal.withOpacity(0.15)
+                          ? Colors.teal.withValues(alpha: 0.15)
                           : Colors.black12,
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1775,7 +1762,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: plan,
+            initialValue: plan,
             decoration: const InputDecoration(labelText: '契約プラン'),
             items: const [
               DropdownMenuItem(value: 'ベーシック', child: Text('ベーシック')),
@@ -1875,7 +1862,12 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
                       field.alertThUpper = upper;
                       field.alertThLower = lower;
 
-                      state.notifyListeners();
+                      appState.updateField(
+                        widget.fieldId,
+                        name: payload['paddyname'] as String,
+                        alertThUpper: upper,
+                        alertThLower: lower,
+                      );
 
                       scaffold.showSnackBar(
                         const SnackBar(content: Text('変更しました')),
@@ -1900,6 +1892,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
     try {
       final res = await http.get(Uri.parse('$kBaseUrl/app/paddy/get_devices'));
+      if (!mounted) return;
       if (res.statusCode != 200) {
         throw Exception('get_devices: ${res.statusCode}');
       }
@@ -1930,7 +1923,14 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       field.alertThUpper = apiField.alertThUpper;
       field.alertThLower = apiField.alertThLower;
 
-      state.notifyListeners();
+      state.updateField(
+        widget.fieldId,
+        name: apiField.name,
+        offset: apiField.offset,
+        enableAlert: apiField.enableAlert,
+        alertThUpper: apiField.alertThUpper,
+        alertThLower: apiField.alertThLower,
+      );
 
       // UIに反映（表示項目は今のまま）
       nameCtrl.text = apiField.name;
@@ -1948,8 +1948,9 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       if (!mounted) return;
       setState(() => _loadError = '設定の取得に失敗: $e');
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 }

@@ -713,7 +713,7 @@ class _SelectionBar extends StatelessWidget {
                       builder: (_) {
                         return ListView.separated(
                           itemCount: selectedUuids.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (_, i) {
                             final uuid = selectedUuids[i];
                             return ListTile(
