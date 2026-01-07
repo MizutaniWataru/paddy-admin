@@ -111,6 +111,12 @@ class AppState extends ChangeNotifier {
         if (existing != null) {
           existing.name = apiField.name;
           existing.imageUrl = apiField.imageUrl;
+
+          existing.offset = apiField.offset;
+          existing.enableAlert = apiField.enableAlert;
+          existing.alertThUpper = apiField.alertThUpper;
+          existing.alertThLower = apiField.alertThLower;
+
           existing.isPending = false;
           existing.pendingText = null;
         } else {
@@ -123,6 +129,11 @@ class AppState extends ChangeNotifier {
               waterTempText: '水温 -',
               isPending: false,
               works: const [],
+
+              offset: apiField.offset,
+              enableAlert: apiField.enableAlert,
+              alertThUpper: apiField.alertThUpper,
+              alertThLower: apiField.alertThLower,
             ),
           );
         }
@@ -320,6 +331,11 @@ class FieldModel {
     this.pref,
     this.city,
     this.plan,
+
+    this.offset = 0,
+    this.enableAlert = false,
+    this.alertThUpper = 0,
+    this.alertThLower = 0,
   });
 
   final String id;
@@ -336,6 +352,11 @@ class FieldModel {
   String? pref;
   String? city;
   String? plan;
+
+  int offset;
+  bool enableAlert;
+  int alertThUpper;
+  int alertThLower;
 
   final List<WorkLog> works;
 }
@@ -849,7 +870,7 @@ class _EmptyFieldsCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              '右上の「＋」から追加するか、\n引っ張って更新してね。',
+              '右上の「＋」から追加するか、\n引っ張って更新してください。',
               textAlign: TextAlign.center,
             ),
 
@@ -1673,7 +1694,6 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
 }
 
 /// ====== 画面: 圃場設定 ======
-/// PDF: 「圃場名」「相対値/絶対値」「設定方法（一括/個別）」「水位上限/下限」「水温上限/下限」「契約プラン」「変更」 :contentReference[oaicite:12]{index=12}
 class FieldSettingsScreen extends StatefulWidget {
   const FieldSettingsScreen({super.key, required this.fieldId});
   final String fieldId;
@@ -1690,10 +1710,24 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
   String setMethod = '一括'; // 一括 / 個別
   String displayMethod = '相対値'; // 相対値 / 絶対値
 
+  bool _loading = true;
+  String? _loadError;
+
+  int _serverOffset = 0;
+  bool _serverEnableAlert = false;
+
   final waterUpperCtrl = TextEditingController();
   final waterLowerCtrl = TextEditingController();
   final tempUpperCtrl = TextEditingController();
   final tempLowerCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFromServer();
+    });
+  }
 
   @override
   void dispose() {
@@ -1711,7 +1745,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     final state = AppStateScope.of(context);
     final field = state.getFieldById(widget.fieldId);
 
-    nameCtrl.text = nameCtrl.text.isEmpty ? field.name : nameCtrl.text;
     plan = field.plan ?? plan;
 
     return Scaffold(
@@ -1719,6 +1752,18 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          if (_loading) const LinearProgressIndicator(),
+          if (_loadError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _loadError!,
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
           TextField(
             controller: nameCtrl,
             decoration: const InputDecoration(labelText: '圃場名'),
@@ -1735,38 +1780,36 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
             items: const [
               DropdownMenuItem(value: 'ベーシック', child: Text('ベーシック')),
               DropdownMenuItem(value: 'スタンダード', child: Text('スタンダード')),
-              DropdownMenuItem(value: 'プレミアム', child: Text('プレミアム')),
             ],
             onChanged: (v) => setState(() => plan = v ?? plan),
           ),
           const SizedBox(height: 12),
           const Text('設定方法'),
-          RadioListTile<String>(
-            value: '一括',
-            groupValue: setMethod,
-            onChanged: (v) => setState(() => setMethod = v ?? '一括'),
-            title: const Text('一括'),
-          ),
-          RadioListTile<String>(
-            value: '個別',
-            groupValue: setMethod,
-            onChanged: (v) => setState(() => setMethod = v ?? '個別'),
-            title: const Text('個別'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: '一括', label: Text('一括')),
+              ButtonSegment(value: '個別', label: Text('個別')),
+            ],
+            selected: {setMethod},
+            onSelectionChanged: (newSelection) {
+              setState(() => setMethod = newSelection.first);
+            },
           ),
           const SizedBox(height: 8),
           const Text('水位表示方法'),
-          RadioListTile<String>(
-            value: '相対値',
-            groupValue: displayMethod,
-            onChanged: (v) => setState(() => displayMethod = v ?? '相対値'),
-            title: const Text('相対値'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: '相対値', label: Text('相対値')),
+              ButtonSegment(value: '絶対値', label: Text('絶対値')),
+            ],
+            selected: {displayMethod},
+            onSelectionChanged: (newSelection) {
+              setState(() => displayMethod = newSelection.first);
+            },
           ),
-          RadioListTile<String>(
-            value: '絶対値',
-            groupValue: displayMethod,
-            onChanged: (v) => setState(() => displayMethod = v ?? '絶対値'),
-            title: const Text('絶対値'),
-          ),
+
           const SizedBox(height: 10),
           TextField(
             controller: waterUpperCtrl,
@@ -1794,21 +1837,120 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
           const SizedBox(height: 12),
           PrimaryButton(
             label: '変更',
-            onPressed: () {
-              setState(() {
-                field.name = nameCtrl.text.trim().isEmpty
-                    ? field.name
-                    : nameCtrl.text.trim();
-                field.plan = plan;
-              });
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('変更しました（仮）')));
-            },
+            onPressed: _loading
+                ? null
+                : () async {
+                    final scaffold = ScaffoldMessenger.of(context);
+                    final appState = AppStateScope.of(context);
+                    final field = appState.getFieldById(widget.fieldId);
+
+                    final upper =
+                        int.tryParse(waterUpperCtrl.text) ?? field.alertThUpper;
+                    final lower =
+                        int.tryParse(waterLowerCtrl.text) ?? field.alertThLower;
+
+                    final payload = {
+                      'padid': widget.fieldId,
+                      'paddyname': nameCtrl.text.trim().isEmpty
+                          ? field.name
+                          : nameCtrl.text.trim(),
+                      'offset': _serverOffset,
+                      'enable_alert': _serverEnableAlert ? 1 : 0,
+                      'alert_th_upper': upper,
+                      'alert_th_lower': lower,
+                    };
+
+                    try {
+                      final res = await http.post(
+                        Uri.parse('$kBaseUrl/app/paddy/update_device'),
+                        headers: {'Content-Type': 'application/json'},
+                        body: jsonEncode(payload),
+                      );
+
+                      if (res.statusCode != 200) {
+                        throw Exception('update_device: ${res.statusCode}');
+                      }
+
+                      field.name = payload['paddyname'] as String;
+                      field.alertThUpper = upper;
+                      field.alertThLower = lower;
+
+                      state.notifyListeners();
+
+                      scaffold.showSnackBar(
+                        const SnackBar(content: Text('変更しました')),
+                      );
+                    } catch (e) {
+                      scaffold.showSnackBar(
+                        SnackBar(content: Text('保存に失敗: $e')),
+                      );
+                    }
+                  },
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _loadFromServer() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
+    try {
+      final res = await http.get(Uri.parse('$kBaseUrl/app/paddy/get_devices'));
+      if (res.statusCode != 200) {
+        throw Exception('get_devices: ${res.statusCode}');
+      }
+
+      final List<dynamic> list = json.decode(utf8.decode(res.bodyBytes));
+
+      Map<String, dynamic>? found;
+      for (final it in list) {
+        if (it is Map<String, dynamic> &&
+            it['padid'].toString() == widget.fieldId) {
+          found = it;
+          break;
+        }
+      }
+      if (found == null) {
+        throw Exception('対象の圃場が見つかりません (padid=${widget.fieldId})');
+      }
+
+      final apiField = PaddyField.fromJson(found);
+
+      // ローカルStateも更新（一覧と整合させる）
+      final state = AppStateScope.of(context);
+      final field = state.getFieldById(widget.fieldId);
+
+      field.name = apiField.name;
+      field.offset = apiField.offset;
+      field.enableAlert = apiField.enableAlert;
+      field.alertThUpper = apiField.alertThUpper;
+      field.alertThLower = apiField.alertThLower;
+
+      state.notifyListeners();
+
+      // UIに反映（表示項目は今のまま）
+      nameCtrl.text = apiField.name;
+      currentCtrl.text = field.waterLevelText; // 現在水位は一覧で持ってる表示を流用
+      waterUpperCtrl.text = apiField.alertThUpper.toString();
+      waterLowerCtrl.text = apiField.alertThLower.toString();
+
+      // UIに出さないけど保存で使う
+      _serverOffset = apiField.offset;
+      _serverEnableAlert = apiField.enableAlert;
+
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadError = '設定の取得に失敗: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 }
 
@@ -1820,9 +1962,7 @@ class AppSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
-      body: const ScreenPadding(
-        child: Text('ホーム左上の歯車（仮）\n※PDFには詳細項目がないので、後で仕様が決まったら追加しよ。'),
-      ),
+      body: const ScreenPadding(child: Text('ホーム左上の歯車（仮）')),
     );
   }
 }
