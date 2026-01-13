@@ -50,7 +50,3 @@ class _AppRootState extends State<AppRoot> {
     );
   }
 }
-
-/// ====== 画面: 圃場詳細（グラフ + 作業履歴 + 設定へ） ======
-/// PDF: 「圃場A」「グラフ」「1日/3日/7日」「作業履歴」「設定」 :contentReference[oaicite:11]{index=11}
-enum ChartDataType { waterLevel, temperature }

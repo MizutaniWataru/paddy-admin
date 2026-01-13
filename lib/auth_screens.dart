@@ -194,7 +194,6 @@ class _RegisterUserNameScreenState extends State<RegisterUserNameScreen> {
 }
 
 /// ====== 画面: 認証コード入力（送信 → 圃場一覧へ） ======
-/// PDF: 「認証コード」「送信」 :contentReference[oaicite:6]{index=6}
 class VerifyCodeScreen extends StatefulWidget {
   const VerifyCodeScreen({super.key, required this.nextIsHome});
   final bool nextIsHome;

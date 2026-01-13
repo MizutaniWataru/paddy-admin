@@ -1,3 +1,4 @@
+// lib/field_models.dart
 class FieldModel {
   FieldModel({
     required this.id,
@@ -11,6 +12,10 @@ class FieldModel {
     this.pref,
     this.city,
     this.plan,
+
+    this.remark,
+    this.drainageControl = false,
+
     this.offset = 0,
     this.enableAlert = false,
     this.alertThUpper = 0,
@@ -31,6 +36,9 @@ class FieldModel {
   String? pref;
   String? city;
   String? plan;
+
+  String? remark;
+  bool drainageControl;
 
   int offset;
   bool enableAlert;

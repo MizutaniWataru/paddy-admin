@@ -6,6 +6,8 @@ import 'field_models.dart';
 import 'field_register_screens.dart';
 import 'my_page_screen.dart';
 import 'field_detail_screen.dart';
+import 'open_close_request_screens.dart';
+import 'home_settings_screen.dart';
 
 /// ====== 画面: 圃場一覧 ======
 class HomeScreen extends StatefulWidget {
@@ -47,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const AppSettingsScreen()),
+              MaterialPageRoute(builder: (_) => const HomeBulkSettingsScreen()),
             );
           },
         ),
@@ -101,16 +103,53 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: PrimaryButton(
-            label: '開閉依頼',
-            onPressed: () {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('開閉依頼（仮）')));
+          child: AnimatedBuilder(
+            animation: state,
+            builder: (_, _) {
+              if (state.hasAnyOpenCloseRequest) {
+                return Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.tonal(
+                        onPressed: () => state.clearOpenCloseRequests(),
+                        child: const Text('依頼中止'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: PrimaryButton(
+                        label: '開閉依頼',
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const OpenCloseRequestFieldSelectScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return PrimaryButton(
+                label: '開閉依頼',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const OpenCloseRequestFieldSelectScreen(),
+                    ),
+                  );
+                },
+              );
             },
           ),
         ),
       ),
+
       body: AnimatedBuilder(
         animation: state,
         builder: (_, _) {
@@ -156,7 +195,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   )
                 else
-                  ...state.fields.map((f) => _FieldCard(field: f)),
+                  ...state.fields.map(
+                    (f) => _FieldCard(
+                      field: f,
+                      isRequesting: state.isOpenCloseRequested(f.id),
+                    ),
+                  ),
               ],
             ),
           );
@@ -354,8 +398,9 @@ class _EmptyFieldsCard extends StatelessWidget {
 }
 
 class _FieldCard extends StatelessWidget {
-  const _FieldCard({required this.field});
+  const _FieldCard({required this.field, required this.isRequesting});
   final FieldModel field;
+  final bool isRequesting;
 
   @override
   Widget build(BuildContext context) {
@@ -375,7 +420,6 @@ class _FieldCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 画像（前と同じ左側配置 + 少し大きく）
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: SizedBox(
@@ -410,7 +454,6 @@ class _FieldCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
 
-              // 右側（圃場名は今まで通りの出し方）
               Expanded(
                 child: field.isPending
                     ? Column(
@@ -427,7 +470,6 @@ class _FieldCard extends StatelessWidget {
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 左：圃場名（今まで通り）
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,23 +481,29 @@ class _FieldCard extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(height: 6),
-                                const Text(
-                                  ' ', // 余白（必要なければ消してOK）
-                                  style: TextStyle(fontSize: 12),
-                                ),
+                                const Text(' ', style: TextStyle(fontSize: 12)),
                               ],
                             ),
                           ),
 
                           const SizedBox(width: 10),
 
-                          // 右：水位・水温（縦並び）
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(field.waterLevelText),
                               const SizedBox(height: 6),
                               Text(field.waterTempText),
+                              if (isRequesting) ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                  '作業依頼中',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ],

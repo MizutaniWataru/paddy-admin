@@ -11,25 +11,25 @@ import 'field_models.dart';
 /// ====== App State ======
 class AppState extends ChangeNotifier {
   final List<FieldModel> fields = [
-    // FieldModel(
-    //   id: 'a',
-    //   name: '圃場A',
-    //   waterLevelText: '水位 12cm',
-    //   waterTempText: '水温 18℃',
-    //   imageUrl: '',
-    //   isPending: false,
-    //   works: [
-    //     WorkLog(
-    //       id: 'w1',
-    //       title: '作業A',
-    //       timeText: '00時00分',
-    //       actionText: '給水開',
-    //       status: '完了',
-    //       assignee: '○○××',
-    //       comments: ['了解です', '写真確認しました'],
-    //     ),
-    //   ],
-    // ),
+    FieldModel(
+      id: 'a',
+      name: '圃場A',
+      waterLevelText: '水位 12cm',
+      waterTempText: '水温 18℃',
+      imageUrl: '',
+      isPending: false,
+      works: [
+        WorkLog(
+          id: 'w1',
+          title: '作業A',
+          timeText: '00時00分',
+          actionText: '給水開',
+          status: '完了',
+          assignee: '○○××',
+          comments: ['了解です', '写真確認しました'],
+        ),
+      ],
+    ),
   ];
 
   void addPendingField({
@@ -37,6 +37,7 @@ class AppState extends ChangeNotifier {
     required String pref,
     required String city,
     required String plan,
+    String? remark,
   }) {
     fields.add(
       FieldModel(
@@ -51,6 +52,8 @@ class AppState extends ChangeNotifier {
         city: city,
         plan: plan,
         works: [],
+        remark: remark,
+        drainageControl: false,
       ),
     );
     notifyListeners();
@@ -78,7 +81,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1) 圃場一覧（get_devices）
       final devicesRes = await http.get(
         Uri.parse('$kBaseUrl/app/paddy/get_devices'),
       );
@@ -90,13 +92,11 @@ class AppState extends ChangeNotifier {
         utf8.decode(devicesRes.bodyBytes),
       );
 
-      // 既存の圃場（申請中含む）を保持しつつ、APIにある圃場をマージ
       final existingById = {for (final f in fields) f.id: f};
 
       for (final d in devicesData) {
         if (d is! Map<String, dynamic>) continue;
 
-        // zipのPaddyField.fromJsonを使って padid/paddyname を取り出す
         final apiField = PaddyField.fromJson(d);
 
         final existing = existingById[apiField.id];
@@ -131,7 +131,6 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      // 2) 各圃場の最新値（get_device_data）
       final now = DateTime.now();
       final toDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
       final fromDate = DateFormat(
@@ -152,7 +151,7 @@ class AppState extends ChangeNotifier {
             final List<dynamic> data = json.decode(utf8.decode(res.bodyBytes));
             if (data.isEmpty) return;
 
-            // measured_date が一番新しいデータを拾う（順番に依存しない）
+            // measured_date が一番新しいデータを拾う
             Map<String, dynamic>? latest;
             DateTime? latestDt;
             for (final it in data) {
@@ -177,7 +176,6 @@ class AppState extends ChangeNotifier {
             final waterMm = (latest['waterlevel'] as num?)?.toDouble();
             final waterCm = waterMm == null ? null : (waterMm / 10.0);
 
-            // 温度は「temperatureが入ってる中で一番新しいやつ」を拾う
             Map<String, dynamic>? tempItem;
             DateTime? tempDt;
             for (final it in data) {
@@ -201,7 +199,6 @@ class AppState extends ChangeNotifier {
             }
             final temp = (tempItem?['temperature'] as num?)?.toDouble();
 
-            // カード表示用テキストを更新
             f.waterLevelText = waterCm == null
                 ? '水位 -'
                 : '水位 ${waterCm.toStringAsFixed(1)}cm';
@@ -229,6 +226,8 @@ class AppState extends ChangeNotifier {
     bool? enableAlert,
     int? alertThUpper,
     int? alertThLower,
+    String? remark,
+    bool? drainageControl,
   }) {
     final f = getFieldById(id);
     if (name != null) f.name = name;
@@ -236,6 +235,53 @@ class AppState extends ChangeNotifier {
     if (enableAlert != null) f.enableAlert = enableAlert;
     if (alertThUpper != null) f.alertThUpper = alertThUpper;
     if (alertThLower != null) f.alertThLower = alertThLower;
+    if (remark != null) f.remark = remark;
+    if (drainageControl != null) f.drainageControl = drainageControl;
+    notifyListeners();
+  }
+
+  // ====== 一括設定（ホーム左上） ======
+  String bulkDisplayMethod = '相対値';
+  int bulkWaterUpper = 0;
+  int bulkWaterLower = 0;
+  int bulkTempUpper = 0;
+  int bulkTempLower = 0;
+  bool bulkDrainageControl = false;
+
+  void updateBulkSettings({
+    required String displayMethod,
+    required int waterUpper,
+    required int waterLower,
+    required int tempUpper,
+    required int tempLower,
+    required bool drainageControl,
+  }) {
+    bulkDisplayMethod = displayMethod;
+    bulkWaterUpper = waterUpper;
+    bulkWaterLower = waterLower;
+    bulkTempUpper = tempUpper;
+    bulkTempLower = tempLower;
+    bulkDrainageControl = drainageControl;
+    notifyListeners();
+  }
+
+  final Map<String, OpenCloseRequest> _openCloseRequests = {};
+
+  bool get hasAnyOpenCloseRequest => _openCloseRequests.isNotEmpty;
+  bool isOpenCloseRequested(String fieldId) =>
+      _openCloseRequests.containsKey(fieldId);
+  OpenCloseRequest? getOpenCloseRequest(String fieldId) =>
+      _openCloseRequests[fieldId];
+
+  void setOpenCloseRequests(Map<String, OpenCloseRequest> reqs) {
+    _openCloseRequests
+      ..clear()
+      ..addAll(reqs);
+    notifyListeners();
+  }
+
+  void clearOpenCloseRequests() {
+    _openCloseRequests.clear();
     notifyListeners();
   }
 }
@@ -254,4 +300,10 @@ class AppStateScope extends InheritedNotifier<AppState> {
     }
     return scope.notifier!;
   }
+}
+
+class OpenCloseRequest {
+  OpenCloseRequest({required this.action, required this.scheduledAt});
+  final String action;
+  final DateTime scheduledAt;
 }

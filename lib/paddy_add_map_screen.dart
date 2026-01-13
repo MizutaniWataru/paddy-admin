@@ -543,7 +543,7 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                           child: Icon(
                             Icons.circle,
                             size: s * 0.8,
-                            color: Colors.blueGrey, // 見やすい色に（好みで）
+                            color: Colors.blueGrey,
                           ),
                         );
                       }).toList(),
