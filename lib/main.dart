@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_state.dart';
 import 'auth_screens.dart';
@@ -38,6 +39,7 @@ class _AppRootState extends State<AppRoot> {
           colorScheme: ColorScheme.fromSeed(seedColor: seed),
           useMaterial3: true,
           scaffoldBackgroundColor: Colors.white,
+          textTheme: GoogleFonts.notoSansJpTextTheme(),
           inputDecorationTheme: const InputDecorationTheme(
             border: OutlineInputBorder(),
           ),
