@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import 'app_state.dart';
 import 'common_widgets.dart';
+import 'constants.dart';
 
 class FieldRegisterMapScreen extends StatefulWidget {
   const FieldRegisterMapScreen({super.key});
@@ -82,8 +86,11 @@ class FieldRegisterPlanScreen extends StatefulWidget {
 }
 
 class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
+  static const String _registerPathDefault = '/api/paddy';
+
   String plan = 'ベーシック';
   final remarkCtrl = TextEditingController();
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -91,17 +98,69 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
     super.dispose();
   }
 
+  Future<bool> _submitRegisterRequest() async {
+    final uri = Uri.parse('$kPaddyDbBaseUrl$_registerPathDefault');
+    final payload = <String, dynamic>{
+      'paddyname': widget.fieldName,
+      'plan': plan,
+      'remark': remarkCtrl.text.trim(),
+    };
+
+    final res = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    return res.statusCode >= 200 && res.statusCode < 300;
+  }
+
+  Future<void> _onSubmit() async {
+    if (_submitting) return;
+
+    final state = AppStateScope.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _submitting = true);
+    try {
+      final ok = await _submitRegisterRequest();
+      if (!mounted) return;
+
+      if (!ok) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('登録申請に失敗しました。時間をおいて再試行してください。')),
+        );
+        return;
+      }
+
+      state.addPendingField(
+        name: widget.fieldName,
+        pref: '',
+        city: '',
+        plan: plan,
+        remark: remarkCtrl.text.trim(),
+      );
+
+      Navigator.popUntil(context, (r) => r.isFirst);
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
+      messenger.showSnackBar(const SnackBar(content: Text('登録申請しました。')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('登録申請に失敗しました: $e')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final state = AppStateScope.of(context);
-
     return Scaffold(
       appBar: AppBar(title: const Text('圃場登録')),
       body: ScreenPadding(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('施肥プラン'),
+            const Text('契約プラン'),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: plan,
@@ -109,7 +168,9 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
                 DropdownMenuItem(value: 'ベーシック', child: Text('ベーシック')),
                 DropdownMenuItem(value: 'スタンダード', child: Text('スタンダード')),
               ],
-              onChanged: (v) => setState(() => plan = v ?? 'ベーシック'),
+              onChanged: _submitting
+                  ? null
+                  : (v) => setState(() => plan = v ?? 'ベーシック'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -120,29 +181,17 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
               ),
               maxLines: 3,
               textInputAction: TextInputAction.newline,
+              enabled: !_submitting,
             ),
             const Spacer(),
-            PrimaryButton(
-              label: '登録申請',
-              onPressed: () {
-                state.addPendingField(
-                  name: widget.fieldName,
-                  pref: '',
-                  city: '',
-                  plan: plan,
-                  remark: remarkCtrl.text.trim(),
-                );
-                Navigator.popUntil(context, (r) => r.isFirst);
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/home',
-                  (r) => false,
-                );
-
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('登録申請しました。')));
-              },
+            const SizedBox(height: 8),
+            SafeArea(
+              minimum: const EdgeInsets.only(bottom: 10),
+              top: false,
+              child: PrimaryButton(
+                label: _submitting ? '送信中…' : '登録申請',
+                onPressed: _submitting ? null : _onSubmit,
+              ),
             ),
           ],
         ),
