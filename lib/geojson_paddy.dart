@@ -1,10 +1,7 @@
-// lib/geojson_paddy.dart
-// GeoJSON（FeatureCollection）から水田ポリゴンを扱うための最低限のモデル。
-
 import 'package:latlong2/latlong.dart';
 
 class PaddyPolygon {
-  final String uuid;
+  final String polyID;
   final int? landType;
   final int? issueYear;
   final LatLng centroid;
@@ -15,7 +12,7 @@ class PaddyPolygon {
   final double maxLng;
 
   const PaddyPolygon({
-    required this.uuid,
+    required this.polyID,
     required this.centroid,
     required this.outerRing,
     required this.minLat,
@@ -26,9 +23,6 @@ class PaddyPolygon {
     this.issueYear,
   });
 
-  /// GeoJSONのFeature（Polygon）から生成。
-  /// - 座標は [lng, lat] 形式を想定（EPSG:6668 でも緯度経度がdegreeなのでそのまま描画）
-  /// - 穴（inner ring）は今は無視（必要になったら対応）
   factory PaddyPolygon.fromGeoJsonFeature(Map<String, dynamic> feature) {
     final props =
         (feature['properties'] as Map?)?.cast<String, dynamic>() ??
@@ -37,9 +31,15 @@ class PaddyPolygon {
         (feature['geometry'] as Map?)?.cast<String, dynamic>() ??
         <String, dynamic>{};
 
-    final uuid = (props['polygon_uuid'] ?? props['uuid'] ?? '').toString();
-    if (uuid.isEmpty) {
-      throw FormatException('polygon_uuid が見つからないFeatureがあります');
+    final polyID =
+        (props['poly_id'] ??
+                props['polygon_id'] ??
+                props['polygon_uuid'] ??
+                props['uuid'] ??
+                '')
+            .toString();
+    if (polyID.isEmpty) {
+      throw const FormatException('polygon id is missing');
     }
 
     final landType = _asIntOrNull(props['land_type']);
@@ -47,13 +47,12 @@ class PaddyPolygon {
 
     final coords = geometry['coordinates'];
     if (geometry['type'] != 'Polygon' || coords is! List || coords.isEmpty) {
-      throw FormatException('Polygon以外、または coordinates が不正です');
+      throw const FormatException('invalid polygon geometry');
     }
 
-    // outer ring: coordinates[0]
     final outer = coords.first;
     if (outer is! List || outer.isEmpty) {
-      throw FormatException('Polygon outer ring が不正です');
+      throw const FormatException('invalid polygon outer ring');
     }
 
     final ring = <LatLng>[];
@@ -68,7 +67,7 @@ class PaddyPolygon {
     }
 
     if (ring.length < 3) {
-      throw FormatException('Polygonの点数が不足しています: uuid=$uuid');
+      throw FormatException('invalid points. poly_id=$polyID');
     }
 
     final pointLat = _asDoubleOrNull(props['point_lat']);
@@ -81,7 +80,6 @@ class PaddyPolygon {
     var maxLat = ring.first.latitude;
     var minLng = ring.first.longitude;
     var maxLng = ring.first.longitude;
-
     for (final p in ring) {
       if (p.latitude < minLat) minLat = p.latitude;
       if (p.latitude > maxLat) maxLat = p.latitude;
@@ -90,9 +88,44 @@ class PaddyPolygon {
     }
 
     return PaddyPolygon(
-      uuid: uuid,
+      polyID: polyID,
       landType: landType,
       issueYear: issueYear,
+      centroid: centroid,
+      outerRing: ring,
+      minLat: minLat,
+      minLng: minLng,
+      maxLat: maxLat,
+      maxLng: maxLng,
+    );
+  }
+
+  factory PaddyPolygon.fromApiRow(Map<String, dynamic> row) {
+    final polyID = (row['poly_id'] ?? '').toString();
+    if (polyID.isEmpty) {
+      throw const FormatException('poly_id is missing');
+    }
+
+    final ring = _extractOuterRing(row['coordinates']);
+    if (ring.length < 3) {
+      throw FormatException('invalid coordinates. poly_id=$polyID');
+    }
+
+    final centroid = _fallbackCentroid(ring);
+
+    var minLat = ring.first.latitude;
+    var maxLat = ring.first.latitude;
+    var minLng = ring.first.longitude;
+    var maxLng = ring.first.longitude;
+    for (final p in ring) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+
+    return PaddyPolygon(
+      polyID: polyID,
       centroid: centroid,
       outerRing: ring,
       minLat: minLat,
@@ -116,8 +149,50 @@ class PaddyPolygon {
     return null;
   }
 
+  static List<LatLng> _extractOuterRing(dynamic coordinates) {
+    dynamic current = coordinates;
+
+    while (current is List && current.isNotEmpty) {
+      final first = current.first;
+      if (_toLatLngOrNull(first) != null) break;
+      if (first is List) {
+        current = first;
+        continue;
+      }
+      break;
+    }
+
+    if (current is! List) return const <LatLng>[];
+
+    final ring = <LatLng>[];
+    for (final point in current) {
+      final p = _toLatLngOrNull(point);
+      if (p != null) ring.add(p);
+    }
+    return ring;
+  }
+
+  static LatLng? _toLatLngOrNull(dynamic point) {
+    if (point is List && point.length >= 2) {
+      final lng = _asDoubleOrNull(point[0]);
+      final lat = _asDoubleOrNull(point[1]);
+      if (lat != null && lng != null) return LatLng(lat, lng);
+      return null;
+    }
+
+    if (point is Map) {
+      final lat = _asDoubleOrNull(point['lat'] ?? point['latitude']);
+      final lng = _asDoubleOrNull(
+        point['lng'] ?? point['lon'] ?? point['longitude'],
+      );
+      if (lat != null && lng != null) return LatLng(lat, lng);
+      return null;
+    }
+
+    return null;
+  }
+
   static LatLng _fallbackCentroid(List<LatLng> ring) {
-    // 超ざっくり平均（凸/凹を厳密に扱う必要が出たら面積重心に変える）
     double latSum = 0;
     double lngSum = 0;
     for (final p in ring) {

@@ -1,9 +1,8 @@
-// lib/field_register_screens.dart
 import 'package:flutter/material.dart';
-import 'common_widgets.dart';
-import 'app_state.dart';
 
-/// ====== 画面: 圃場登録（地図/都道府県/市区町村 → 次へ） ======
+import 'app_state.dart';
+import 'common_widgets.dart';
+
 class FieldRegisterMapScreen extends StatefulWidget {
   const FieldRegisterMapScreen({super.key});
 
@@ -12,14 +11,10 @@ class FieldRegisterMapScreen extends StatefulWidget {
 }
 
 class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
-  final prefCtrl = TextEditingController(text: '長野県');
-  final cityCtrl = TextEditingController(text: '（市区町村）');
-  final nameCtrl = TextEditingController(text: '圃場B');
+  final nameCtrl = TextEditingController(text: '圃場');
 
   @override
   void dispose() {
-    prefCtrl.dispose();
-    cityCtrl.dispose();
     nameCtrl.dispose();
     super.dispose();
   }
@@ -32,32 +27,11 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: prefCtrl,
-                    decoration: const InputDecoration(labelText: '都道府県'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: cityCtrl,
-                    decoration: const InputDecoration(labelText: '市区町村'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: TextField(
               controller: nameCtrl,
               decoration: const InputDecoration(labelText: '圃場名'),
             ),
           ),
-          const SizedBox(height: 10),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -77,16 +51,14 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
               child: PrimaryButton(
                 label: '次へ',
                 onPressed: () {
+                  final fieldName = nameCtrl.text.trim().isEmpty
+                      ? '圃場'
+                      : nameCtrl.text.trim();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => FieldRegisterPlanScreen(
-                        pref: prefCtrl.text.trim(),
-                        city: cityCtrl.text.trim(),
-                        fieldName: nameCtrl.text.trim().isEmpty
-                            ? '圃場B'
-                            : nameCtrl.text.trim(),
-                      ),
+                      builder: (_) =>
+                          FieldRegisterPlanScreen(fieldName: fieldName),
                     ),
                   );
                 },
@@ -99,17 +71,9 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
   }
 }
 
-/// ====== 画面: 圃場登録（契約プラン → 登録申請） ======
 class FieldRegisterPlanScreen extends StatefulWidget {
-  const FieldRegisterPlanScreen({
-    super.key,
-    required this.pref,
-    required this.city,
-    required this.fieldName,
-  });
+  const FieldRegisterPlanScreen({super.key, required this.fieldName});
 
-  final String pref;
-  final String city;
   final String fieldName;
 
   @override
@@ -137,7 +101,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('契約プラン'),
+            const Text('施肥プラン'),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: plan,
@@ -152,20 +116,19 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
               controller: remarkCtrl,
               decoration: const InputDecoration(
                 labelText: '備考',
-                hintText: '地域ルールや水門開閉の注意点など',
+                hintText: '地図ルールや期間条件のメモなど',
               ),
               maxLines: 3,
               textInputAction: TextInputAction.newline,
             ),
-
             const Spacer(),
             PrimaryButton(
               label: '登録申請',
               onPressed: () {
                 state.addPendingField(
                   name: widget.fieldName,
-                  pref: widget.pref,
-                  city: widget.city,
+                  pref: '',
+                  city: '',
                   plan: plan,
                   remark: remarkCtrl.text.trim(),
                 );
@@ -178,7 +141,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
                 ScaffoldMessenger.of(
                   context,
-                ).showSnackBar(const SnackBar(content: Text('登録申請しました（仮）')));
+                ).showSnackBar(const SnackBar(content: Text('登録申請しました。')));
               },
             ),
           ],

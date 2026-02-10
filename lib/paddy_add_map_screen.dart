@@ -1,15 +1,16 @@
-// lib/paddy_add_map_screen.dart
-
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 import 'dart:math' as math;
 
-import 'geojson_loader.dart';
-import 'geojson_paddy.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import 'constants.dart';
+import 'geojson_paddy.dart';
 
 class PaddyAddFromMapScreen extends StatefulWidget {
   const PaddyAddFromMapScreen({super.key});
@@ -19,237 +20,98 @@ class PaddyAddFromMapScreen extends StatefulWidget {
 }
 
 class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
-  // assets/polygon_index.jsonから読み込み
-  Map<String, Map<String, String>> _geoJsonAssets = const {};
-  bool _indexReady = false;
-  Object? _indexError;
-
-  String _selectedPref = '長野県'; // 初期値
-  String _selectedCity = '茅野市'; // 初期値
-
-  String get _selectedAssetPath =>
-      _geoJsonAssets[_selectedPref]![_selectedCity]!;
-
   final MapController _mapController = MapController();
-  late Future<List<PaddyPolygon>> _loadFuture;
-  bool _pendingMoveToCity = false;
+  final LayerHitNotifier<String> _polyHitNotifier = ValueNotifier(null);
 
+  late Future<List<PaddyPolygon>> _loadFuture;
+  bool _isReloading = false;
+
+  static const double _startZoom = 17.0;
   static const double _polygonZoomThreshold = 16.5;
+  static const double _markerZoomThreshold = 14.5;
   static const Duration _recomputeDelay = Duration(milliseconds: 120);
 
   List<PaddyPolygon> _allPolygons = const [];
   List<PaddyPolygon> _visiblePolygons = const [];
-
-  Timer? _recomputeDebounce;
-
-  final Set<String> _selected = <String>{};
-
-  LatLng? _startCenter;
-  bool _locationReady = false;
-  static const double _startZoom = 17.0; // 初期ズーム
-  static const double _cityMoveMinZoom = 17.0; // 市変更時のズーム最低値
-  bool _showPolygons = false;
-  double _currentZoom = _startZoom;
-
-  final LayerHitNotifier<String> _polyHitNotifier = ValueNotifier(null);
-
-  bool _mapReady = false;
-
-  final Map<String, PaddyPolygon> _polyByUuid = {};
+  final Set<String> _selectedPolyIDs = <String>{};
+  final Map<String, PaddyPolygon> _polyByID = {};
   final Map<String, double> _areaCacheM2 = {};
 
-  static const double _markerZoomThreshold = 14.5; // これ未満は点すら表示しない
+  Timer? _recomputeDebounce;
+  LatLng? _startCenter;
+  bool _locationReady = false;
+  bool _mapReady = false;
+  bool _showPolygons = false;
   bool _showMarkers = false;
-
-  double _polygonAreaM2(List<LatLng> points) {
-    if (points.length < 3) return 0;
-
-    final pts =
-        (points.length >= 2 &&
-            points.first.latitude == points.last.latitude &&
-            points.first.longitude == points.last.longitude)
-        ? points.sublist(0, points.length - 1)
-        : points;
-
-    if (pts.length < 3) return 0;
-
-    const R = 6378137.0;
-    final lat0 =
-        pts.fold<double>(0, (s, p) => s + (p.latitude * math.pi / 180.0)) /
-        pts.length;
-    final cosLat0 = math.cos(lat0);
-
-    double sum = 0.0;
-    for (var i = 0; i < pts.length; i++) {
-      final a = pts[i];
-      final b = pts[(i + 1) % pts.length];
-
-      final x1 = R * (a.longitude * math.pi / 180.0) * cosLat0;
-      final y1 = R * (a.latitude * math.pi / 180.0);
-      final x2 = R * (b.longitude * math.pi / 180.0) * cosLat0;
-      final y2 = R * (b.latitude * math.pi / 180.0);
-
-      sum += (x1 * y2) - (x2 * y1);
-    }
-    return (sum.abs() / 2.0);
-  }
-
-  LatLngBounds _boundsFromBBoxes(Iterable<PaddyPolygon> polys) {
-    var has = false;
-    var minLat = double.infinity;
-    var minLng = double.infinity;
-    var maxLat = -double.infinity;
-    var maxLng = -double.infinity;
-
-    for (final p in polys) {
-      has = true;
-      if (p.minLat < minLat) minLat = p.minLat;
-      if (p.minLng < minLng) minLng = p.minLng;
-      if (p.maxLat > maxLat) maxLat = p.maxLat;
-      if (p.maxLng > maxLng) maxLng = p.maxLng;
-    }
-
-    if (!has) {
-      return LatLngBounds(const LatLng(0, 0), const LatLng(0, 0));
-    }
-    return LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
-  }
-
-  void _moveToCityIfPending() {
-    if (!_pendingMoveToCity) return;
-    if (!_mapReady) return;
-    if (_allPolygons.isEmpty) return;
-
-    _pendingMoveToCity = false;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      try {
-        final b = _boundsFromBBoxes(_allPolygons);
-        if (b.northEast.latitude == 0 && b.northEast.longitude == 0) return;
-
-        _mapController.fitCamera(
-          CameraFit.bounds(bounds: b, padding: const EdgeInsets.all(60)),
-        );
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final z = _mapController.camera.zoom;
-          if (z < _cityMoveMinZoom) {
-            _mapController.move(_mapController.camera.center, _cityMoveMinZoom);
-          }
-          _maybeRecomputeVisible();
-        });
-
-        return;
-      } catch (_) {
-        _mapController.move(_allPolygons.first.centroid, _cityMoveMinZoom);
-      }
-
-      _maybeRecomputeVisible();
-    });
-  }
-
-  double _markerSizeForZoom(double zoom) {
-    const double minZoom = 12.0; // これ以下は最小サイズ
-    const double maxZoom = _polygonZoomThreshold; // ここに近いほど大きく
-
-    const double minSize = 2.0; // ズームアウト時の最小
-    const double maxSize = 16.0; // 閾値付近の最大
-
-    final t = ((zoom - minZoom) / (maxZoom - minZoom)).clamp(0.0, 1.0);
-    return minSize + (maxSize - minSize) * t;
-  }
-
-  double _areaM2Of(PaddyPolygon p) {
-    return _areaCacheM2.putIfAbsent(p.uuid, () => _polygonAreaM2(p.outerRing));
-  }
-
-  String _formatArea(double m2) {
-    if (m2 >= 10000) return '${(m2 / 10000).toStringAsFixed(2)} ha';
-    if (m2 >= 100) {
-      return '${(m2 / 100).toStringAsFixed(1)} a（${m2.toStringAsFixed(0)} m²）';
-    }
-    return '${m2.toStringAsFixed(0)} m²';
-  }
-
-  void _maybeRecomputeVisible() {
-    if (!mounted) return;
-    if (!_locationReady) return;
-    if (!_mapReady) return;
-    if (_allPolygons.isEmpty) return;
-
-    _scheduleRecomputeVisible();
-  }
+  double _currentZoom = _startZoom;
 
   @override
   void initState() {
     super.initState();
-    _loadFuture = Future.value(const <PaddyPolygon>[]); // 空で初期化
-
-    _initPolygonIndex();
+    _loadFuture = _loadPolygonsFromApi();
     _initCurrentLocation();
   }
 
-  Future<void> _initPolygonIndex() async {
-    try {
-      final idx = await loadPolygonIndexFromAsset('assets/polygon_index.json');
-      if (!mounted) return;
-
-      // 初期値が無い/変わっても落ちないように補正
-      final pref = idx.containsKey(_selectedPref)
-          ? _selectedPref
-          : idx.keys.first;
-      final cities = idx[pref]!;
-      final city = cities.containsKey(_selectedCity)
-          ? _selectedCity
-          : cities.keys.first;
-
-      setState(() {
-        _geoJsonAssets = idx;
-        _selectedPref = pref;
-        _selectedCity = city;
-
-        _indexReady = true;
-        _indexError = null;
-
-        // index が揃ってから polygon 読み込み開始
-        _loadFuture = loadPaddyPolygonsFromAsset(_selectedAssetPath);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _indexReady = true;
-        _indexError = e;
-      });
-    }
+  @override
+  void dispose() {
+    _recomputeDebounce?.cancel();
+    _polyHitNotifier.dispose();
+    super.dispose();
   }
 
-  void _reloadGeoJson({bool moveToCity = false}) {
-    if (!_indexReady || _indexError != null) return;
+  Future<List<PaddyPolygon>> _loadPolygonsFromApi() async {
+    final uri = Uri.parse('$kPaddyDbBaseUrl/api/polygons');
+    final res = await http.get(uri);
 
+    if (res.statusCode != 200) {
+      throw Exception('ポリゴン取得に失敗: ${res.statusCode}');
+    }
+
+    final decoded = json.decode(utf8.decode(res.bodyBytes));
+    if (decoded is! List) {
+      throw const FormatException('ポリゴンAPIのレスポンス形式が不正です');
+    }
+
+    final out = <PaddyPolygon>[];
+    for (final row in decoded) {
+      Map<String, dynamic>? m;
+      if (row is Map<String, dynamic>) {
+        m = row;
+      } else if (row is Map) {
+        m = row.cast<String, dynamic>();
+      }
+      if (m == null) continue;
+
+      try {
+        out.add(PaddyPolygon.fromApiRow(m));
+      } catch (_) {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  Future<void> _reloadPolygons() async {
     _allPolygons = const [];
     _visiblePolygons = const [];
-    _selected.clear();
-    _polyByUuid.clear();
+    _selectedPolyIDs.clear();
+    _polyByID.clear();
     _areaCacheM2.clear();
 
-    _pendingMoveToCity = moveToCity;
-
     setState(() {
-      _loadFuture = loadPaddyPolygonsFromAsset(_selectedAssetPath);
+      _isReloading = true;
+      _loadFuture = _loadPolygonsFromApi();
     });
-  }
 
-  void _toggleSelectionByUuid(String uuid) {
-    setState(() {
-      if (_selected.contains(uuid)) {
-        _selected.remove(uuid);
-      } else {
-        _selected.add(uuid);
+    try {
+      await _loadFuture;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isReloading = false;
+        });
       }
-    });
+    }
   }
 
   Future<void> _initCurrentLocation() async {
@@ -271,10 +133,6 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
         setState(() => _locationReady = true);
         return;
       }
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _maybeRecomputeVisible();
-      });
 
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) {
@@ -304,19 +162,78 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _recomputeDebounce?.cancel();
-    super.dispose();
+  double _polygonAreaM2(List<LatLng> points) {
+    if (points.length < 3) return 0;
+
+    final pts =
+        (points.length >= 2 &&
+            points.first.latitude == points.last.latitude &&
+            points.first.longitude == points.last.longitude)
+        ? points.sublist(0, points.length - 1)
+        : points;
+
+    if (pts.length < 3) return 0;
+
+    const r = 6378137.0;
+    final lat0 =
+        pts.fold<double>(0, (s, p) => s + (p.latitude * math.pi / 180.0)) /
+        pts.length;
+    final cosLat0 = math.cos(lat0);
+
+    double sum = 0.0;
+    for (var i = 0; i < pts.length; i++) {
+      final a = pts[i];
+      final b = pts[(i + 1) % pts.length];
+
+      final x1 = r * (a.longitude * math.pi / 180.0) * cosLat0;
+      final y1 = r * (a.latitude * math.pi / 180.0);
+      final x2 = r * (b.longitude * math.pi / 180.0) * cosLat0;
+      final y2 = r * (b.latitude * math.pi / 180.0);
+
+      sum += (x1 * y2) - (x2 * y1);
+    }
+    return sum.abs() / 2.0;
+  }
+
+  double _areaM2Of(PaddyPolygon p) {
+    return _areaCacheM2.putIfAbsent(
+      p.polyID,
+      () => _polygonAreaM2(p.outerRing),
+    );
+  }
+
+  String _formatArea(double m2) {
+    if (m2 >= 10000) return '${(m2 / 10000).toStringAsFixed(2)} ha';
+    if (m2 >= 100) return '${(m2 / 100).toStringAsFixed(1)} a';
+    return '${m2.toStringAsFixed(0)} m²';
+  }
+
+  double _markerSizeForZoom(double zoom) {
+    const minZoom = 12.0;
+    const maxZoom = _polygonZoomThreshold;
+    const minSize = 2.0;
+    const maxSize = 16.0;
+    final t = ((zoom - minZoom) / (maxZoom - minZoom)).clamp(0.0, 1.0);
+    return minSize + (maxSize - minSize) * t;
+  }
+
+  void _toggleSelectionByID(String polyID) {
+    setState(() {
+      if (_selectedPolyIDs.contains(polyID)) {
+        _selectedPolyIDs.remove(polyID);
+      } else {
+        _selectedPolyIDs.add(polyID);
+      }
+    });
   }
 
   void _clearSelection() {
-    setState(() => _selected.clear());
+    setState(() => _selectedPolyIDs.clear());
   }
 
   void _submit() {
-    if (_selected.isEmpty) return;
-    Navigator.pop(context, _selected.toList());
+    if (_selectedPolyIDs.isEmpty) return;
+    Navigator.pop(context, _selectedPolyIDs.toList());
   }
 
   void _onMapEvent(MapEvent event) {
@@ -329,6 +246,14 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
     _recomputeDebounce = Timer(_recomputeDelay, _recomputeVisible);
   }
 
+  void _maybeRecomputeVisible() {
+    if (!mounted) return;
+    if (!_locationReady) return;
+    if (!_mapReady) return;
+    if (_allPolygons.isEmpty) return;
+    _scheduleRecomputeVisible();
+  }
+
   void _recomputeVisible() {
     if (!mounted) return;
     if (!_mapReady) return;
@@ -336,11 +261,9 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
 
     final camera = _mapController.camera;
     final zoom = camera.zoom;
-
     final showPolys = zoom >= _polygonZoomThreshold;
     final showMarkers = !showPolys && zoom >= _markerZoomThreshold;
 
-    // 低ズームは“何も出さない”ので、重い走査をしない
     if (!showPolys && !showMarkers) {
       setState(() {
         _currentZoom = zoom;
@@ -354,7 +277,6 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
     final b = camera.visibleBounds;
     final sw = b.southWest;
     final ne = b.northEast;
-
     final latPad = (ne.latitude - sw.latitude) * 0.20;
     final lngPad = (ne.longitude - sw.longitude) * 0.20;
 
@@ -364,7 +286,6 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
     final maxLng = ne.longitude + lngPad;
 
     final visible = <PaddyPolygon>[];
-
     if (showPolys) {
       for (final p in _allPolygons) {
         final intersects =
@@ -396,33 +317,35 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_indexReady) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (_indexError != null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('地図から追加')),
-        body: Center(child: Text('polygon_index.json の読み込みに失敗: $_indexError')),
-      );
-    }
-
     return FutureBuilder<List<PaddyPolygon>>(
       future: _loadFuture,
       builder: (context, snapshot) {
         final loading = snapshot.connectionState != ConnectionState.done;
         final error = snapshot.error;
+
         if (loading) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
+
         if (error != null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('地図から水田を追加')),
+            appBar: AppBar(title: const Text('圃場から追加')),
             body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('GeoJSONの読み込みに失敗した: $error'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('ポリゴン取得に失敗しました: $error'),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: _reloadPolygons,
+                      child: const Text('再読み込み'),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -431,52 +354,79 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
         final loaded = snapshot.data ?? const <PaddyPolygon>[];
         if (_allPolygons.isEmpty) {
           _allPolygons = loaded;
-
-          _polyByUuid
+          _polyByID
             ..clear()
-            ..addEntries(loaded.map((p) => MapEntry(p.uuid, p)));
+            ..addEntries(loaded.map((p) => MapEntry(p.polyID, p)));
           _areaCacheM2.clear();
 
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _moveToCityIfPending();
             _maybeRecomputeVisible();
           });
         }
 
-        final initial = _allPolygons.isNotEmpty
-            ? _allPolygons.first.centroid
-            : const LatLng(35.681236, 139.767125);
-
         if (!_locationReady) {
-          return Scaffold(
-            appBar: AppBar(title: Text('地図から追加')),
+          return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        final selectedList = _selected.toList()..sort();
-        final totalAreaM2 = selectedList.fold<double>(0.0, (sum, uuid) {
-          final p = _polyByUuid[uuid];
+        if (_allPolygons.isEmpty) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('圃場から追加'),
+              actions: [
+                IconButton(
+                  tooltip: '再読み込み',
+                  onPressed: _isReloading ? null : _reloadPolygons,
+                  icon: _isReloading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            body: const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('ポリゴンデータがありません'),
+              ),
+            ),
+          );
+        }
+
+        final initial = _allPolygons.first.centroid;
+        final selectedList = _selectedPolyIDs.toList()..sort();
+        final totalAreaM2 = selectedList.fold<double>(0.0, (sum, polyID) {
+          final p = _polyByID[polyID];
           if (p == null) return sum;
           return sum + _areaM2Of(p);
         });
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('地図から追加'),
+            title: const Text('圃場から追加'),
             actions: [
               IconButton(
-                tooltip: '選択解除',
-                onPressed: _selected.isEmpty ? null : _clearSelection,
-                icon: const Icon(Icons.backspace),
+                tooltip: '再読み込み',
+                onPressed: _isReloading ? null : _reloadPolygons,
+                icon: _isReloading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
               ),
-              TextButton(
-                onPressed: _selected.isEmpty ? null : _submit,
-                child: const Text('決定', style: TextStyle(color: Colors.red)),
+              IconButton(
+                tooltip: '選択解除',
+                onPressed: _selectedPolyIDs.isEmpty ? null : _clearSelection,
+                icon: const Icon(Icons.backspace),
               ),
             ],
           ),
-
           body: Stack(
             children: [
               FlutterMap(
@@ -488,11 +438,9 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                   onMapReady: () {
                     _mapReady = true;
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _moveToCityIfPending();
                       _maybeRecomputeVisible();
                     });
                   },
-                  // ↓これをコメントアウトすると回転可能になる
                   interactionOptions: InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
@@ -501,7 +449,7 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                   TileLayer(
                     urlTemplate:
                         'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'dev.flutter_map.example',
+                    userAgentPackageName: 'jp.paddy.admin',
                   ),
                   if (_showPolygons)
                     GestureDetector(
@@ -509,17 +457,15 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                       onTap: () {
                         final result = _polyHitNotifier.value;
                         if (result == null || result.hitValues.isEmpty) return;
-
-                        final uuid = result.hitValues.first;
-                        _toggleSelectionByUuid(uuid);
+                        _toggleSelectionByID(result.hitValues.first);
                       },
                       child: PolygonLayer<String>(
                         hitNotifier: _polyHitNotifier,
                         polygons: _visiblePolygons.map((p) {
-                          final selected = _selected.contains(p.uuid);
+                          final selected = _selectedPolyIDs.contains(p.polyID);
                           return Polygon<String>(
                             points: p.outerRing,
-                            hitValue: p.uuid,
+                            hitValue: p.polyID,
                             color: selected
                                 ? Colors.blue.withAlpha(130)
                                 : Colors.green.withAlpha(90),
@@ -531,7 +477,6 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                         }).toList(),
                       ),
                     ),
-
                   if (_showMarkers)
                     MarkerLayer(
                       markers: _visiblePolygons.map((p) {
@@ -548,11 +493,10 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                         );
                       }).toList(),
                     ),
-
                   RichAttributionWidget(
                     attributions: [
                       TextSourceAttribution(
-                        '国土地理院地図',
+                        '国土地理院',
                         onTap: () => launchUrl(
                           Uri.parse(
                             'https://maps.gsi.go.jp/development/ichiran.html',
@@ -563,83 +507,9 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                   ),
                 ],
               ),
-              Positioned(
-                top: 12,
-                left: 12,
-                right: 12,
-                child: SafeArea(
-                  child: Card(
-                    elevation: 6,
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: _selectedPref,
-                              decoration: const InputDecoration(
-                                labelText: '都道府県',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              items: _geoJsonAssets.keys
-                                  .map(
-                                    (p) => DropdownMenuItem(
-                                      value: p,
-                                      child: Text(p),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) {
-                                if (v == null) return;
-
-                                final cities = _geoJsonAssets[v]!.keys.toList();
-                                setState(() {
-                                  _selectedPref = v;
-                                  _selectedCity = cities.first;
-                                });
-
-                                // 都道府県変えたら、先頭の市にして読み直し
-                                _reloadGeoJson(moveToCity: true);
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: _selectedCity,
-                              decoration: const InputDecoration(
-                                labelText: '市',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              items: (_geoJsonAssets[_selectedPref]!.keys)
-                                  .map(
-                                    (c) => DropdownMenuItem(
-                                      value: c,
-                                      child: Text(c),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) {
-                                if (v == null) return;
-                                setState(() => _selectedCity = v);
-
-                                // 市変えたらその市のjsonを読み直し
-                                _reloadGeoJson(moveToCity: true);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
               if (!_showPolygons)
                 Positioned(
-                  top: 86,
+                  top: 12,
                   left: 12,
                   child: Card(
                     child: Padding(
@@ -649,24 +519,26 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                       ),
                       child: Text(
                         _showMarkers
-                            ? 'ズーム ${_polygonZoomThreshold.toStringAsFixed(1)} 以上でポリゴン表示（現在: ${_currentZoom.toStringAsFixed(1)}）'
-                            : 'ズーム ${_markerZoomThreshold.toStringAsFixed(1)} 以上で点表示（現在: ${_currentZoom.toStringAsFixed(1)}）',
+                            ? 'ズーム ${_polygonZoomThreshold.toStringAsFixed(1)} 以上でポリゴン表示 (現在: ${_currentZoom.toStringAsFixed(1)})'
+                            : 'ズーム ${_markerZoomThreshold.toStringAsFixed(1)} 以上で表示 (現在: ${_currentZoom.toStringAsFixed(1)})',
                       ),
                     ),
                   ),
                 ),
-
               Align(
                 alignment: Alignment.bottomCenter,
-                child: _SelectionBar(
-                  selectedUuids: selectedList,
-                  areaTextOf: (uuid) {
-                    final p = _polyByUuid[uuid];
-                    if (p == null) return '-';
-                    return _formatArea(_areaM2Of(p));
-                  },
-                  totalAreaText: _formatArea(totalAreaM2),
-                ),
+                child: selectedList.isNotEmpty
+                    ? _SelectionBar(
+                        selectedPolyIDs: selectedList,
+                        totalAreaText: _formatArea(totalAreaM2),
+                        areaTextOf: (polyID) {
+                          final p = _polyByID[polyID];
+                          if (p == null) return '-';
+                          return _formatArea(_areaM2Of(p));
+                        },
+                        onSubmit: _submit,
+                      )
+                    : const SizedBox.shrink(),
               ),
             ],
           ),
@@ -677,15 +549,17 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
 }
 
 class _SelectionBar extends StatelessWidget {
-  final List<String> selectedUuids;
-  final String Function(String uuid) areaTextOf;
-  final String totalAreaText;
-
   const _SelectionBar({
-    required this.selectedUuids,
-    required this.areaTextOf,
+    required this.selectedPolyIDs,
     required this.totalAreaText,
+    required this.areaTextOf,
+    required this.onSubmit,
   });
+
+  final List<String> selectedPolyIDs;
+  final String totalAreaText;
+  final String Function(String polyID) areaTextOf;
+  final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -695,39 +569,64 @@ class _SelectionBar extends StatelessWidget {
         elevation: 6,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Text(
-                  '選択: ${selectedUuids.length}件',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              if (selectedUuids.isNotEmpty)
-                IconButton(
-                  tooltip: '選択一覧',
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      showDragHandle: true,
-                      builder: (_) {
-                        return ListView.separated(
-                          itemCount: selectedUuids.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (_, i) {
-                            final uuid = selectedUuids[i];
-                            return ListTile(
-                              leading: const Icon(Icons.crop_square),
-                              title: Text(uuid),
-                              subtitle: Text('面積: ${areaTextOf(uuid)}'),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '選択 ${selectedPolyIDs.length}件',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (selectedPolyIDs.isNotEmpty)
+                    IconButton(
+                      tooltip: '選択一覧',
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          showDragHandle: true,
+                          builder: (_) {
+                            return ListView.separated(
+                              itemCount: selectedPolyIDs.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (_, i) {
+                                final polyID = selectedPolyIDs[i];
+                                return ListTile(
+                                  leading: const Icon(Icons.crop_square),
+                                  title: Text('poly_id: $polyID'),
+                                  subtitle: Text(
+                                    areaTextOf(polyID),
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                );
+                              },
                             );
                           },
                         );
                       },
-                    );
-                  },
-                  icon: const Icon(Icons.list),
+                      icon: const Icon(Icons.list),
+                    ),
+                  FilledButton.icon(
+                    onPressed: onSubmit,
+                    icon: const Icon(Icons.check),
+                    label: const Text('決定'),
+                  ),
+                ],
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '合計面積  $totalAreaText',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
+              ),
             ],
           ),
         ),

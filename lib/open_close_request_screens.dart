@@ -344,7 +344,7 @@ class _OpenCloseRequestTimeScreenState
           child: PrimaryButton(
             label: '依頼送信',
             onPressed: () {
-              // AppStateへ反映（仮）
+              // AppStateへ反映
               final reqs = <String, OpenCloseRequest>{};
               for (final s in widget.selected) {
                 reqs[s.fieldId] = OpenCloseRequest(
