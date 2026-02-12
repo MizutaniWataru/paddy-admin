@@ -13,6 +13,7 @@ import 'field_models.dart';
 import 'constants.dart';
 
 enum ChartDataType { waterLevel, temperature }
+enum ChartRange { day1, day3, day7 }
 
 // 履歴データ用クラス
 class HistoryData {
@@ -36,6 +37,7 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
   static const Duration _jstOffset = Duration(hours: 9);
 
   ChartDataType _chartType = ChartDataType.waterLevel;
+  ChartRange _chartRange = ChartRange.day1;
 
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 1));
   DateTime _endDate = DateTime.now();
@@ -60,7 +62,59 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
   void _applyRange() {
     final nowUtc = DateTime.now().toUtc();
     _endDate = nowUtc;
-    _startDate = nowUtc.subtract(const Duration(days: 1));
+    switch (_chartRange) {
+      case ChartRange.day1:
+        _startDate = nowUtc.subtract(const Duration(days: 1));
+        break;
+      case ChartRange.day3:
+        _startDate = nowUtc.subtract(const Duration(days: 3));
+        break;
+      case ChartRange.day7:
+        _startDate = nowUtc.subtract(const Duration(days: 7));
+        break;
+    }
+  }
+
+  void _setChartRange(ChartRange range) {
+    if (_chartRange == range) return;
+    setState(() {
+      _chartRange = range;
+      _applyRange();
+    });
+    _fetchDetailsData();
+  }
+
+  double _xAxisIntervalMillis() {
+    switch (_chartRange) {
+      case ChartRange.day1:
+        return const Duration(hours: 3).inMilliseconds.toDouble();
+      case ChartRange.day3:
+        return const Duration(hours: 12).inMilliseconds.toDouble();
+      case ChartRange.day7:
+        return const Duration(days: 1).inMilliseconds.toDouble();
+    }
+  }
+
+  String _xAxisLabel(DateTime dtJst) {
+    switch (_chartRange) {
+      case ChartRange.day1:
+        return '${dtJst.hour.toString().padLeft(2, '0')}時';
+      case ChartRange.day3:
+        return '${dtJst.month}/${dtJst.day} ${dtJst.hour.toString().padLeft(2, '0')}時';
+      case ChartRange.day7:
+        return '${dtJst.month}/${dtJst.day}';
+    }
+  }
+
+  String _chartRangeLabel(ChartRange range) {
+    switch (range) {
+      case ChartRange.day1:
+        return '1日';
+      case ChartRange.day3:
+        return '3日';
+      case ChartRange.day7:
+        return '7日';
+    }
   }
 
   Future<void> _fetchDetailsData() async {
@@ -182,7 +236,7 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
       yInterval = (maxY - minY) <= 0 ? 1.0 : (maxY - minY) / 4.0;
     }
 
-    final xInterval = const Duration(hours: 3).inMilliseconds.toDouble();
+    final xInterval = _xAxisIntervalMillis();
 
     return LineChartData(
       minX: minX,
@@ -225,7 +279,7 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
                 value.toInt(),
                 isUtc: true,
               ).add(_jstOffset);
-              final label = '${dtJst.hour.toString().padLeft(2, '0')}時';
+              final label = _xAxisLabel(dtJst);
               return Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(label, style: axisTextStyle),
@@ -336,16 +390,29 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
                   ),
                 ),
               ),
-
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEFF2FA),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  '24時間',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ChartRange>(
+                    value: _chartRange,
+                    onChanged: (v) {
+                      if (v == null) return;
+                      _setChartRange(v);
+                    },
+                    items: ChartRange.values
+                        .map(
+                          (v) => DropdownMenuItem<ChartRange>(
+                            value: v,
+                            child: Text(_chartRangeLabel(v)),
+                          ),
+                        )
+                        .toList(),
+                  ),
                 ),
               ),
             ],
