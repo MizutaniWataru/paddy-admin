@@ -90,6 +90,20 @@ class FieldRegisterPlanScreen extends StatefulWidget {
       _FieldRegisterPlanScreenState();
 }
 
+class _RegisterSubmitResult {
+  const _RegisterSubmitResult({
+    required this.ok,
+    this.errorMessage,
+    this.sensorAssigned = true,
+    this.assignmentReason,
+  });
+
+  final bool ok;
+  final String? errorMessage;
+  final bool sensorAssigned;
+  final String? assignmentReason;
+}
+
 class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
   static const String _registerPathDefault = '/api/fields';
 
@@ -108,7 +122,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
     return int.tryParse(widget.selectedPolyIds.first);
   }
 
-  Future<bool> _submitRegisterRequest() async {
+  Future<_RegisterSubmitResult> _submitRegisterRequest() async {
     final firstPolyID = _firstSelectedPolyID();
     if (widget.selectedPolyIds.isNotEmpty && firstPolyID == null) {
       throw const FormatException('poly_id must be numeric');
@@ -134,7 +148,39 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
       body: jsonEncode(payload),
     );
 
-    return res.statusCode >= 200 && res.statusCode < 300;
+    Map<String, dynamic>? bodyMap;
+    if (res.bodyBytes.isNotEmpty) {
+      final decoded = json.decode(utf8.decode(res.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        bodyMap = decoded;
+      } else if (decoded is Map) {
+        bodyMap = decoded.cast<String, dynamic>();
+      }
+    }
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      final message = (bodyMap?['error'] ?? 'registration request failed')
+          .toString();
+      return _RegisterSubmitResult(ok: false, errorMessage: message);
+    }
+
+    bool sensorAssigned = true;
+    String? assignmentReason;
+    final assignment = bodyMap?['sensor_assignment'];
+    if (assignment is Map) {
+      final assignmentMap = assignment.cast<dynamic, dynamic>();
+      final status = assignmentMap['status']?.toString().toLowerCase();
+      if (status == 'unassigned') {
+        sensorAssigned = false;
+      }
+      assignmentReason = assignmentMap['reason']?.toString();
+    }
+
+    return _RegisterSubmitResult(
+      ok: true,
+      sensorAssigned: sensorAssigned,
+      assignmentReason: assignmentReason,
+    );
   }
 
   Future<void> _onSubmit() async {
@@ -145,12 +191,16 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
     setState(() => _submitting = true);
     try {
-      final ok = await _submitRegisterRequest();
+      final result = await _submitRegisterRequest();
       if (!mounted) return;
 
-      if (!ok) {
+      if (!result.ok) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('登録申請に失敗しました。時間をおいて再試行してください。')),
+          SnackBar(
+            content: Text(
+              result.errorMessage ?? 'registration request failed',
+            ),
+          ),
         );
         return;
       }
@@ -160,10 +210,17 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
       Navigator.popUntil(context, (r) => r.isFirst);
       Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
-      messenger.showSnackBar(const SnackBar(content: Text('登録申請しました。')));
+      final suffix = result.sensorAssigned
+          ? ''
+          : ' (sensor not assigned: ${result.assignmentReason ?? 'no candidate'})';
+      messenger.showSnackBar(
+        SnackBar(content: Text('registration submitted$suffix')),
+      );
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('登録申請に失敗しました: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('registration request failed: $e')),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
