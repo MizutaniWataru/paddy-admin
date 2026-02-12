@@ -69,19 +69,19 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.add),
             onPressed: () async {
               final nav = Navigator.of(context);
-              final selectedUuids = await Navigator.push<List<String>>(
+              final selectedPolyIds = await Navigator.push<List<String>>(
                 context,
                 MaterialPageRoute(
                   builder: (_) => const PaddyAddFromMapScreen(),
                 ),
               );
               if (!mounted) return;
-              if (selectedUuids == null || selectedUuids.isEmpty) return;
+              if (selectedPolyIds == null || selectedPolyIds.isEmpty) return;
 
               nav.push(
                 MaterialPageRoute(
                   builder: (_) =>
-                      FieldRegisterPlanScreen(fieldName: '圃場（地図追加）'),
+                      FieldRegisterPlanScreen(fieldName: '圃場（地図追加）', selectedPolyIds: selectedPolyIds),
                 ),
               );
             },
@@ -168,14 +168,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     errorText: state.syncError,
                     onRefresh: () => _sync(showSnack: true),
                     onAdd: () async {
-                      final selectedUuids = await Navigator.push<List<String>>(
+                      final selectedPolyIds = await Navigator.push<List<String>>(
                         context,
                         MaterialPageRoute(
                           builder: (_) => const PaddyAddFromMapScreen(),
                         ),
                       );
                       if (!context.mounted) return;
-                      if (selectedUuids == null || selectedUuids.isEmpty) {
+                      if (selectedPolyIds == null || selectedPolyIds.isEmpty) {
                         return;
                       }
 
@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              FieldRegisterPlanScreen(fieldName: '圃場（地図追加）'),
+                              FieldRegisterPlanScreen(fieldName: '圃場（地図追加）', selectedPolyIds: selectedPolyIds),
                         ),
                       );
                     },

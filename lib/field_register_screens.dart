@@ -76,9 +76,14 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
 }
 
 class FieldRegisterPlanScreen extends StatefulWidget {
-  const FieldRegisterPlanScreen({super.key, required this.fieldName});
+  const FieldRegisterPlanScreen({
+    super.key,
+    required this.fieldName,
+    this.selectedPolyIds = const [],
+  });
 
   final String fieldName;
+  final List<String> selectedPolyIds;
 
   @override
   State<FieldRegisterPlanScreen> createState() =>
@@ -98,13 +103,26 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
     super.dispose();
   }
 
+  int? _firstSelectedPolyID() {
+    if (widget.selectedPolyIds.isEmpty) return null;
+    return int.tryParse(widget.selectedPolyIds.first);
+  }
+
   Future<bool> _submitRegisterRequest() async {
+    final firstPolyID = _firstSelectedPolyID();
+    if (widget.selectedPolyIds.isNotEmpty && firstPolyID == null) {
+      throw const FormatException('poly_id must be numeric');
+    }
+
     final uri = Uri.parse('$kBaseUrl$_registerPathDefault');
     final payload = <String, dynamic>{
       'field_name': widget.fieldName,
       'plan': plan,
       'remark': remarkCtrl.text.trim(),
     };
+    if (firstPolyID != null) {
+      payload['poly_id'] = firstPolyID;
+    }
 
     final res = await http.post(
       uri,
@@ -133,13 +151,8 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
         return;
       }
 
-      state.addPendingField(
-        name: widget.fieldName,
-        pref: '',
-        city: '',
-        plan: plan,
-        remark: remarkCtrl.text.trim(),
-      );
+      await state.syncDevicesAndLatest();
+      if (!mounted) return;
 
       Navigator.popUntil(context, (r) => r.isFirst);
       Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
