@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 class PaddyPolygon {
   final String polyID;
+  final bool isInUse;
   final int? landType;
   final int? issueYear;
   final LatLng centroid;
@@ -13,6 +14,7 @@ class PaddyPolygon {
 
   const PaddyPolygon({
     required this.polyID,
+    this.isInUse = false,
     required this.centroid,
     required this.outerRing,
     required this.minLat,
@@ -89,6 +91,7 @@ class PaddyPolygon {
 
     return PaddyPolygon(
       polyID: polyID,
+      isInUse: false,
       landType: landType,
       issueYear: issueYear,
       centroid: centroid,
@@ -105,6 +108,7 @@ class PaddyPolygon {
     if (polyID.isEmpty) {
       throw const FormatException('poly_id is missing');
     }
+    final isInUse = _asBoolOrFalse(row['in_use']);
 
     final ring = _extractOuterRing(row['coordinates']);
     if (ring.length < 3) {
@@ -126,6 +130,7 @@ class PaddyPolygon {
 
     return PaddyPolygon(
       polyID: polyID,
+      isInUse: isInUse,
       centroid: centroid,
       outerRing: ring,
       minLat: minLat,
@@ -140,6 +145,16 @@ class PaddyPolygon {
     if (v is num) return v.toInt();
     if (v is String) return int.tryParse(v);
     return null;
+  }
+
+  static bool _asBoolOrFalse(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) {
+      final normalized = v.trim().toLowerCase();
+      return normalized == 'true' || normalized == '1' || normalized == 't';
+    }
+    return false;
   }
 
   static double? _asDoubleOrNull(dynamic v) {

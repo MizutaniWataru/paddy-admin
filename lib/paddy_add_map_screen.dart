@@ -218,6 +218,15 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
   }
 
   void _toggleSelectionByID(String polyID) {
+    final polygon = _polyByID[polyID];
+    if (polygon == null) return;
+    if (polygon.isInUse) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('選択できない場所です。')));
+      return;
+    }
+
     setState(() {
       if (_selectedPolyIDs.contains(polyID)) {
         _selectedPolyIDs.remove(polyID);
@@ -357,6 +366,7 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
           _polyByID
             ..clear()
             ..addEntries(loaded.map((p) => MapEntry(p.polyID, p)));
+          _selectedPolyIDs.removeWhere((id) => _polyByID[id]?.isInUse ?? false);
           _areaCacheM2.clear();
 
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -463,13 +473,18 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                         hitNotifier: _polyHitNotifier,
                         polygons: _visiblePolygons.map((p) {
                           final selected = _selectedPolyIDs.contains(p.polyID);
+                          final blocked = p.isInUse;
                           return Polygon<String>(
                             points: p.outerRing,
                             hitValue: p.polyID,
-                            color: selected
+                            color: blocked
+                                ? Colors.grey.withAlpha(90)
+                                : selected
                                 ? Colors.blue.withAlpha(130)
                                 : Colors.green.withAlpha(90),
-                            borderColor: selected
+                            borderColor: blocked
+                                ? Colors.grey.shade700
+                                : selected
                                 ? Colors.blueAccent
                                 : Colors.green.shade900,
                             borderStrokeWidth: selected ? 3.0 : 1.5,
@@ -488,7 +503,7 @@ class _PaddyAddFromMapScreenState extends State<PaddyAddFromMapScreen> {
                           child: Icon(
                             Icons.circle,
                             size: s * 0.8,
-                            color: Colors.blueGrey,
+                            color: p.isInUse ? Colors.grey : Colors.blueGrey,
                           ),
                         );
                       }).toList(),
