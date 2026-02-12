@@ -1,12 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'app_state.dart';
 import 'common_widgets.dart';
+import 'constants.dart';
 import 'field_models.dart';
 
 const _kActions = <String>['給水開ける', '給水閉じる', '排水開ける', '排水閉じる'];
 
-class _SelectedFieldAction {
-  _SelectedFieldAction({required this.fieldId, required this.action});
+class SelectedFieldAction {
+  SelectedFieldAction({required this.fieldId, required this.action});
   final String fieldId;
   final String action;
 }
@@ -102,7 +106,7 @@ class _OpenCloseRequestFieldSelectScreenState
                 ? () {
                     final selected = _selected
                         .map(
-                          (id) => _SelectedFieldAction(
+                          (id) => SelectedFieldAction(
                             fieldId: id,
                             action: _actionById[id] ?? _kActions.first,
                           ),
@@ -222,7 +226,7 @@ class _FieldPickRow extends StatelessWidget {
 /// ====== 画面: 時刻設定 ======
 class OpenCloseRequestTimeScreen extends StatefulWidget {
   const OpenCloseRequestTimeScreen({super.key, required this.selected});
-  final List<_SelectedFieldAction> selected;
+  final List<SelectedFieldAction> selected;
 
   @override
   State<OpenCloseRequestTimeScreen> createState() =>
@@ -232,6 +236,7 @@ class OpenCloseRequestTimeScreen extends StatefulWidget {
 class _OpenCloseRequestTimeScreenState
     extends State<OpenCloseRequestTimeScreen> {
   final Map<String, DateTime> _dtById = {}; // fieldId -> datetime
+  bool _submitting = false;
 
   @override
   void didChangeDependencies() {
@@ -281,6 +286,60 @@ class _OpenCloseRequestTimeScreenState
       alwaysUse24HourFormat: true,
     );
     return '$date $time';
+  }
+
+  int _taskTypeFromAction(String action) {
+    final index = _kActions.indexOf(action);
+    if (index < 0) return 0;
+    return index + 1;
+  }
+
+  Future<String?> _submitOpenCloseRequests() async {
+    final items = <Map<String, dynamic>>[];
+    for (final s in widget.selected) {
+      final fieldID = int.tryParse(s.fieldId);
+      if (fieldID == null || fieldID <= 0) {
+        return 'field_id is invalid: ${s.fieldId}';
+      }
+      final taskType = _taskTypeFromAction(s.action);
+      if (taskType < 1 || taskType > 4) {
+        return 'task_type is invalid for action: ${s.action}';
+      }
+      items.add({'target_field_id': fieldID, 'task_type': taskType});
+    }
+    if (items.isEmpty) {
+      return 'request item is empty';
+    }
+
+    final uri = Uri.parse('$kBaseUrl/api/tasks');
+    final payload = <String, dynamic>{
+      'client_id': kDebugOwnerId,
+      'requests': items,
+    };
+    final res = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        kDebugOwnerHeaderName: kDebugOwnerId,
+      },
+      body: jsonEncode(payload),
+    );
+
+    Map<String, dynamic>? bodyMap;
+    if (res.bodyBytes.isNotEmpty) {
+      final decoded = json.decode(utf8.decode(res.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        bodyMap = decoded;
+      } else if (decoded is Map) {
+        bodyMap = decoded.cast<String, dynamic>();
+      }
+    }
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return (bodyMap?['error'] ?? 'request submit failed').toString();
+    }
+
+    return null;
   }
 
   @override
@@ -342,23 +401,42 @@ class _OpenCloseRequestTimeScreenState
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: PrimaryButton(
-            label: '依頼送信',
-            onPressed: () {
-              // AppStateへ反映
-              final reqs = <String, OpenCloseRequest>{};
-              for (final s in widget.selected) {
-                reqs[s.fieldId] = OpenCloseRequest(
-                  action: s.action,
-                  scheduledAt: _dtById[s.fieldId] ?? DateTime.now(),
-                );
-              }
-              state.setOpenCloseRequests(reqs);
+            label: _submitting ? '送信中…' : '依頼送信',
+            onPressed: _submitting
+                ? null
+                : () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final nav = Navigator.of(context);
+                    setState(() => _submitting = true);
+                    try {
+                      final error = await _submitOpenCloseRequests();
+                      if (!mounted) return;
+                      if (error != null) {
+                        messenger.showSnackBar(SnackBar(content: Text(error)));
+                        return;
+                      }
 
-              // ホームへ戻る
-              Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil('/home', (r) => false);
-            },
+                      // AppStateへ反映
+                      final reqs = <String, OpenCloseRequest>{};
+                      for (final s in widget.selected) {
+                        reqs[s.fieldId] = OpenCloseRequest(
+                          action: s.action,
+                          scheduledAt: _dtById[s.fieldId] ?? DateTime.now(),
+                        );
+                      }
+                      state.setOpenCloseRequests(reqs);
+
+                      // ホームへ戻る
+                      nav.pushNamedAndRemoveUntil('/home', (r) => false);
+                    } catch (e) {
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('request submit failed: $e')),
+                      );
+                    } finally {
+                      if (mounted) setState(() => _submitting = false);
+                    }
+                  },
           ),
         ),
       ),
