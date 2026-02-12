@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'data_model.dart';
 
 class TableScreen extends StatefulWidget {
-  final PaddyField? field;
+  final FieldData? field;
   final List<dynamic>? historyList;
   const TableScreen({super.key, this.field, this.historyList});
 
@@ -16,9 +16,7 @@ class _TableScreenState extends State<TableScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('データ詳細表示'),
-      ),
+      appBar: AppBar(title: const Text('データ詳細表示')),
       body: Column(
         children: [
           Padding(
@@ -37,15 +35,9 @@ class _TableScreenState extends State<TableScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Text(
-                      '水位',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    Text('水位', style: TextStyle(fontWeight: FontWeight.bold)),
                     SizedBox(width: 16),
-                    Text(
-                      '水温',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    Text('水温', style: TextStyle(fontWeight: FontWeight.bold)),
                   ],
                 ),
               ],

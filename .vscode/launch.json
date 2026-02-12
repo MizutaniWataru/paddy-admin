@@ -7,7 +7,6 @@
       "type": "dart",
       "deviceId": "chrome",
       "args": [
-        "--dart-define=AMBERLOGIX_BASE_URL=https://dev.amberlogix.co.jp",
         "--dart-define=PADDY_DB_BASE_URL=http://localhost:8080"
       ]
     },
@@ -17,7 +16,6 @@
       "type": "dart",
       "deviceId": "emulator-5554",
       "args": [
-        "--dart-define=AMBERLOGIX_BASE_URL=https://dev.amberlogix.co.jp",
         "--dart-define=PADDY_DB_BASE_URL=http://10.0.2.2:8080"
       ]
     }

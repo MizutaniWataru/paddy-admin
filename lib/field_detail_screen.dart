@@ -1,6 +1,7 @@
-// lib/detail_screen.dart
+﻿// lib/detail_screen.dart
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
@@ -9,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'settings_screen.dart';
 import 'app_state.dart';
 import 'field_models.dart';
+import 'constants.dart';
 
 enum ChartDataType { waterLevel, temperature }
 
@@ -31,7 +33,7 @@ class FieldDetailScreen extends StatefulWidget {
 }
 
 class _FieldDetailScreenState extends State<FieldDetailScreen> {
-  String range = '1日';
+  static const Duration _jstOffset = Duration(hours: 9);
 
   ChartDataType _chartType = ChartDataType.waterLevel;
 
@@ -44,12 +46,7 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
   List<FlSpot> _waterLevelSpots = [];
   List<FlSpot> _temperatureSpots = [];
 
-  // zipは固定URLだったけど、後で差し替えやすいように一応定数化
-  static const String _baseUrl = String.fromEnvironment(
-    'AMBERLOGIX_BASE_URL',
-    defaultValue: 'https://dev.amberlogix.co.jp',
-  );
-
+  // 初期表示時に最新データを取得
   @override
   void initState() {
     super.initState();
@@ -61,14 +58,9 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
   }
 
   void _applyRange() {
-    final now = DateTime.now();
-    final days = (range == '1日')
-        ? 1
-        : (range == '3日')
-        ? 3
-        : 7;
-    _endDate = now;
-    _startDate = now.subtract(Duration(days: days));
+    final nowUtc = DateTime.now().toUtc();
+    _endDate = nowUtc;
+    _startDate = nowUtc.subtract(const Duration(days: 1));
   }
 
   Future<void> _fetchDetailsData() async {
@@ -81,11 +73,15 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
       final state = AppStateScope.of(context);
       final field = state.getFieldById(widget.fieldId);
 
-      final fromDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(_startDate);
-      final toDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(_endDate);
+      final fromDate = DateFormat(
+        'yyyy-MM-dd HH:mm:ss',
+      ).format(_startDate.add(_jstOffset));
+      final toDate = DateFormat(
+        'yyyy-MM-dd HH:mm:ss',
+      ).format(_endDate.add(_jstOffset));
 
       final url =
-          '$_baseUrl/app/paddy/get_device_data?padid=${field.id}&fromd=$fromDate&tod=$toDate';
+          '$kBaseUrl/api/fields/${Uri.encodeQueryComponent(field.id)}/data?fromd=${Uri.encodeQueryComponent(fromDate)}&tod=${Uri.encodeQueryComponent(toDate)}';
 
       final response = await http.get(Uri.parse(url));
 
@@ -99,17 +95,22 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
       final newTemp = <FlSpot>[];
 
       for (final item in data) {
-        final measuredDate = DateTime.parse(item['measured_date']);
+        final measuredDateRaw = item['measured_date'];
+        if (measuredDateRaw == null) continue;
+        final measuredDate = DateTime.parse(
+          measuredDateRaw.toString(),
+        ).toUtc();
 
-        // zip同様：waterlevelはmm → cm
-        final waterLevelMm = (item['waterlevel'] as num?)?.toDouble() ?? 0.0;
-        final waterLevelCm = waterLevelMm / 10.0;
-
+        // API の waterlevel は mm 単位のため、グラフ表示用に cm に変換する
+        final waterLevelMm = (item['waterlevel'] as num?)?.toDouble();
         final temperature = (item['temperature'] as num?)?.toDouble();
 
-        newWater.add(
-          FlSpot(measuredDate.millisecondsSinceEpoch.toDouble(), waterLevelCm),
-        );
+        if (waterLevelMm != null) {
+          final waterLevelCm = waterLevelMm / 10.0;
+          newWater.add(
+            FlSpot(measuredDate.millisecondsSinceEpoch.toDouble(), waterLevelCm),
+          );
+        }
 
         if (temperature != null) {
           newTemp.add(
@@ -135,20 +136,142 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
   }
 
   LineChartData _buildChartData(List<FlSpot> spots) {
-    final cs = Theme.of(context).colorScheme;
+    if (spots.isEmpty) {
+      return LineChartData(
+        lineBarsData: const [],
+        titlesData: const FlTitlesData(show: false),
+      );
+    }
+
+    final isTemperature = _chartType == ChartDataType.temperature;
+    final lineColor = isTemperature
+        ? const Color(0xFFF5A24A)
+        : const Color(0xFF7F95D8);
+    final fillTopColor = isTemperature
+        ? const Color(0x55F5A24A)
+        : const Color(0x557F95D8);
+    final fillBottomColor = isTemperature
+        ? const Color(0x11F5A24A)
+        : const Color(0x117F95D8);
+    const gridColor = Color(0xFFE8ECF5);
+    const axisTextColor = Color(0xFF8A92A0);
+    const axisTextStyle = TextStyle(
+      fontSize: 10,
+      color: axisTextColor,
+      fontWeight: FontWeight.w500,
+    );
+
+    final minX = _startDate.millisecondsSinceEpoch.toDouble();
+    final maxX = _endDate.millisecondsSinceEpoch.toDouble();
+
+    double minY;
+    double maxY;
+    double yInterval;
+    if (_chartType == ChartDataType.waterLevel) {
+      // API returns waterlevel in mm; the graph converts to cm and keeps fixed 0-30cm.
+      minY = 0;
+      maxY = 30;
+      yInterval = 10;
+    } else {
+      final minYValue = spots.map((s) => s.y).reduce(math.min);
+      final maxYValue = spots.map((s) => s.y).reduce(math.max);
+      final ySpan = (maxYValue - minYValue).abs();
+      final yPadding = math.max(1.0, ySpan * 0.25);
+      minY = math.max(0.0, (minYValue - yPadding).floorToDouble());
+      maxY = (maxYValue + yPadding).ceilToDouble();
+      yInterval = (maxY - minY) <= 0 ? 1.0 : (maxY - minY) / 4.0;
+    }
+
+    final xInterval = const Duration(hours: 3).inMilliseconds.toDouble();
 
     return LineChartData(
-      gridData: const FlGridData(show: true),
-      titlesData: const FlTitlesData(show: false),
+      minX: minX,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY,
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: yInterval,
+        getDrawingHorizontalLine: (_) =>
+            const FlLine(color: gridColor, strokeWidth: 1),
+      ),
+      titlesData: FlTitlesData(
+        topTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        rightTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 28,
+            interval: yInterval,
+            getTitlesWidget: (value, meta) {
+              return Text(value.round().toString(), style: axisTextStyle);
+            },
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 22,
+            interval: xInterval,
+            minIncluded: false,
+            maxIncluded: true,
+            getTitlesWidget: (value, meta) {
+              final dtJst = DateTime.fromMillisecondsSinceEpoch(
+                value.toInt(),
+                isUtc: true,
+              ).add(_jstOffset);
+              final label = '${dtJst.hour.toString().padLeft(2, '0')}時';
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(label, style: axisTextStyle),
+              );
+            },
+          ),
+        ),
+      ),
       borderData: FlBorderData(show: false),
-      lineTouchData: const LineTouchData(enabled: true),
+      lineTouchData: LineTouchData(
+        enabled: true,
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipItems: (touchedSpots) {
+            return touchedSpots.map((touchedSpot) {
+              final text = isTemperature
+                  ? touchedSpot.y.round().toString()
+                  : touchedSpot.y.toStringAsFixed(1);
+              return LineTooltipItem(
+                text,
+                TextStyle(
+                  color: lineColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              );
+            }).toList();
+          },
+        ),
+      ),
       lineBarsData: [
         LineChartBarData(
           spots: spots,
-          isCurved: false,
-          barWidth: 2,
-          color: cs.primary,
+          isCurved: true,
+          curveSmoothness: 0.25,
+          barWidth: 2.2,
+          color: lineColor,
+          isStrokeCapRound: true,
           dotData: const FlDotData(show: false),
+          belowBarData: BarAreaData(
+            show: true,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [fillTopColor, fillBottomColor],
+            ),
+          ),
         ),
       ],
     );
@@ -209,23 +332,21 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Text(
-                    _chartType == ChartDataType.waterLevel ? '水位 ▾' : '水温 ▾',
+                    _chartType == ChartDataType.waterLevel ? '水位 cm' : '水温 ℃',
                   ),
                 ),
               ),
 
-              DropdownButton<String>(
-                value: range,
-                items: const [
-                  DropdownMenuItem(value: '1日', child: Text('1日')),
-                  DropdownMenuItem(value: '3日', child: Text('3日')),
-                  DropdownMenuItem(value: '7日', child: Text('7日')),
-                ],
-                onChanged: (v) {
-                  setState(() => range = v ?? '1日');
-                  _applyRange();
-                  _fetchDetailsData();
-                },
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF2FA),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '24時間',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),
@@ -234,7 +355,8 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
           Container(
             height: 180,
             decoration: BoxDecoration(
-              color: Colors.black12,
+              color: const Color(0xFFF5F7FB),
+              border: Border.all(color: const Color(0xFFDDE3F0)),
               borderRadius: BorderRadius.circular(12),
             ),
             child: _isLoading
@@ -251,11 +373,11 @@ class _FieldDetailScreenState extends State<FieldDetailScreen> {
 
           const SizedBox(height: 16),
 
-          // ===== 作業履歴（今まで通り）=====
+          // ===== 作業履歴 =====
           const Text('作業履歴', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           if (field.works.isEmpty)
-            const Text('履歴がありません')
+            const Text('作業履歴がありません')
           else
             ...field.works.map((w) => _WorkCard(fieldId: field.id, work: w)),
         ],
@@ -309,7 +431,7 @@ class _WorkCard extends StatelessWidget {
   }
 }
 
-/// ====== 画面: 作業詳細（写真/コメント） ======
+/// ====== 画面: 作業詳細（コメント）======
 class WorkDetailScreen extends StatefulWidget {
   const WorkDetailScreen({
     super.key,
@@ -348,7 +470,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             child: Row(
               children: [
                 Expanded(child: Text('ステータス  ${work.status}')),
-                Text('担当者  ${work.assignee}'),
+                Text('諡・ｽ楢・ ${work.assignee}'),
               ],
             ),
           ),
@@ -361,7 +483,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                 color: Colors.black12,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Center(child: Text('写真')),
+              child: const Center(child: Text('蜀咏悄')),
             ),
           ),
           const SizedBox(height: 10),
@@ -423,3 +545,4 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
     );
   }
 }
+

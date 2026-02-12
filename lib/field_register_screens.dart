@@ -86,7 +86,7 @@ class FieldRegisterPlanScreen extends StatefulWidget {
 }
 
 class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
-  static const String _registerPathDefault = '/api/paddy';
+  static const String _registerPathDefault = '/api/fields';
 
   String plan = 'ベーシック';
   final remarkCtrl = TextEditingController();
@@ -99,9 +99,9 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
   }
 
   Future<bool> _submitRegisterRequest() async {
-    final uri = Uri.parse('$kPaddyDbBaseUrl$_registerPathDefault');
+    final uri = Uri.parse('$kBaseUrl$_registerPathDefault');
     final payload = <String, dynamic>{
-      'paddyname': widget.fieldName,
+      'field_name': widget.fieldName,
       'plan': plan,
       'remark': remarkCtrl.text.trim(),
     };

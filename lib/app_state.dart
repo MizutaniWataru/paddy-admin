@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
 
 import 'constants.dart';
 import 'data_model.dart';
@@ -10,27 +9,7 @@ import 'field_models.dart';
 
 /// ====== App State ======
 class AppState extends ChangeNotifier {
-  final List<FieldModel> fields = [
-    FieldModel(
-      id: 'a',
-      name: '圃場A',
-      waterLevelText: '水位 12cm',
-      waterTempText: '水温 18℃',
-      imageUrl: '',
-      isPending: false,
-      works: [
-        WorkLog(
-          id: 'w1',
-          title: '作業A',
-          timeText: '00時00分',
-          actionText: '給水開',
-          status: '完了',
-          assignee: '○○××',
-          comments: ['了解です', '写真確認しました'],
-        ),
-      ],
-    ),
-  ];
+  final List<FieldModel> fields = [];
 
   void addPendingField({
     required String name,
@@ -59,7 +38,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void applyPaddyFieldUpdate(PaddyField updated) {
+  void applyFieldUpdate(FieldData updated) {
     final idx = fields.indexWhere((f) => f.id == updated.id);
     if (idx == -1) return;
     fields[idx].name = updated.name;
@@ -70,7 +49,6 @@ class AppState extends ChangeNotifier {
 
   bool isSyncing = false;
   String? syncError;
-
   bool hasLoadedOnce = false;
 
   Future<void> syncDevicesAndLatest() async {
@@ -81,11 +59,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final devicesRes = await http.get(
-        Uri.parse('$kBaseUrl/app/paddy/get_devices'),
-      );
+      final devicesRes = await http.get(Uri.parse('$kBaseUrl/api/fields'));
       if (devicesRes.statusCode != 200) {
-        throw Exception('圃場一覧(get_devices)の取得に失敗: ${devicesRes.statusCode}');
+        throw Exception('field list fetch failed: ${devicesRes.statusCode}');
       }
 
       final List<dynamic> devicesData = json.decode(
@@ -93,16 +69,24 @@ class AppState extends ChangeNotifier {
       );
 
       final existingById = {for (final f in fields) f.id: f};
+      final seenIds = <String>{};
 
       for (final d in devicesData) {
         if (d is! Map<String, dynamic>) continue;
 
-        final apiField = PaddyField.fromJson(d);
+        final apiField = FieldData.fromJson(d);
+        if (apiField.id.isEmpty) continue;
+        seenIds.add(apiField.id);
+
+        final waterLevelText = _formatWaterLevelText(apiField.waterLevel);
+        final waterTempText = _formatWaterTempText(apiField.temperature);
 
         final existing = existingById[apiField.id];
         if (existing != null) {
           existing.name = apiField.name;
           existing.imageUrl = apiField.imageUrl;
+          existing.waterLevelText = waterLevelText;
+          existing.waterTempText = waterTempText;
 
           existing.offset = apiField.offset;
           existing.enableAlert = apiField.enableAlert;
@@ -117,11 +101,10 @@ class AppState extends ChangeNotifier {
               id: apiField.id,
               name: apiField.name,
               imageUrl: apiField.imageUrl,
-              waterLevelText: '水位 -',
-              waterTempText: '水温 -',
+              waterLevelText: waterLevelText,
+              waterTempText: waterTempText,
               isPending: false,
               works: const [],
-
               offset: apiField.offset,
               enableAlert: apiField.enableAlert,
               alertThUpper: apiField.alertThUpper,
@@ -131,92 +114,26 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      final now = DateTime.now();
-      final toDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
-      final fromDate = DateFormat(
-        'yyyy-MM-dd HH:mm:ss',
-      ).format(now.subtract(const Duration(days: 1)));
-
-      await Future.wait(
-        fields.where((f) => !f.isPending).map((f) async {
-          try {
-            final url =
-                '$kBaseUrl/app/paddy/get_device_data?padid=${Uri.encodeQueryComponent(f.id)}'
-                '&fromd=${Uri.encodeQueryComponent(fromDate)}'
-                '&tod=${Uri.encodeQueryComponent(toDate)}';
-
-            final res = await http.get(Uri.parse(url));
-            if (res.statusCode != 200) return;
-
-            final List<dynamic> data = json.decode(utf8.decode(res.bodyBytes));
-            if (data.isEmpty) return;
-
-            // measured_date が一番新しいデータを拾う
-            Map<String, dynamic>? latest;
-            DateTime? latestDt;
-            for (final it in data) {
-              if (it is! Map<String, dynamic>) continue;
-              final md = it['measured_date'];
-              if (md == null) continue;
-
-              DateTime dt;
-              try {
-                dt = DateTime.parse(md.toString());
-              } catch (_) {
-                continue;
-              }
-
-              if (latestDt == null || dt.isAfter(latestDt)) {
-                latestDt = dt;
-                latest = it;
-              }
-            }
-            if (latest == null) return;
-
-            final waterMm = (latest['waterlevel'] as num?)?.toDouble();
-            final waterCm = waterMm == null ? null : (waterMm / 10.0);
-
-            Map<String, dynamic>? tempItem;
-            DateTime? tempDt;
-            for (final it in data) {
-              if (it is! Map<String, dynamic>) continue;
-              if (it['temperature'] == null) continue;
-
-              final md = it['measured_date'];
-              if (md == null) continue;
-
-              DateTime dt;
-              try {
-                dt = DateTime.parse(md.toString());
-              } catch (_) {
-                continue;
-              }
-
-              if (tempDt == null || dt.isAfter(tempDt)) {
-                tempDt = dt;
-                tempItem = it;
-              }
-            }
-            final temp = (tempItem?['temperature'] as num?)?.toDouble();
-
-            f.waterLevelText = waterCm == null
-                ? '水位 -'
-                : '水位 ${waterCm.toStringAsFixed(1)}cm';
-            f.waterTempText = temp == null
-                ? '水温 -'
-                : '水温 ${temp.toStringAsFixed(0)}℃';
-          } catch (_) {
-            // 1圃場の失敗で全体を落とさない
-          }
-        }),
-      );
+      // Keep pending registrations, remove stale non-pending entries.
+      fields.removeWhere((f) => !f.isPending && !seenIds.contains(f.id));
     } catch (e) {
-      syncError = 'APIエラー: $e';
+      syncError = 'API error: $e';
     } finally {
       isSyncing = false;
       hasLoadedOnce = true;
       notifyListeners();
     }
+  }
+
+  String _formatWaterLevelText(double? waterLevelMm) {
+    if (waterLevelMm == null) return '水位 -';
+    final waterLevelCm = waterLevelMm / 10.0;
+    return '水位 ${waterLevelCm.toStringAsFixed(1)}cm';
+  }
+
+  String _formatWaterTempText(int? waterTempC) {
+    if (waterTempC == null) return '水温 -';
+    return '水温 $waterTempC℃';
   }
 
   void updateField(
@@ -240,8 +157,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ====== 一括設定（ホーム左上） ======
-  String bulkDisplayMethod = '相対値';
+  String bulkDisplayMethod = '選択表示';
   int bulkWaterUpper = 0;
   int bulkWaterLower = 0;
   int bulkTempUpper = 0;
@@ -268,8 +184,10 @@ class AppState extends ChangeNotifier {
   final Map<String, OpenCloseRequest> _openCloseRequests = {};
 
   bool get hasAnyOpenCloseRequest => _openCloseRequests.isNotEmpty;
+
   bool isOpenCloseRequested(String fieldId) =>
       _openCloseRequests.containsKey(fieldId);
+
   OpenCloseRequest? getOpenCloseRequest(String fieldId) =>
       _openCloseRequests[fieldId];
 
@@ -296,7 +214,7 @@ class AppStateScope extends InheritedNotifier<AppState> {
   static AppState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppStateScope>();
     if (scope == null || scope.notifier == null) {
-      throw StateError('AppStateScope が見つかりません。');
+      throw StateError('AppStateScope is not found in widget tree.');
     }
     return scope.notifier!;
   }

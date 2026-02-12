@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-import 'data_model.dart';
 import 'app_state.dart';
 import 'common_widgets.dart';
 import 'constants.dart';
@@ -54,9 +53,8 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
   bool _loading = true;
   String? _loadError;
-
-  int _serverOffset = 0;
-  bool _serverEnableAlert = false;
+  int _contractPlanId = 0;
+  int _levelDisplayMode = 1;
 
   final waterUpperCtrl = TextEditingController();
   final waterLowerCtrl = TextEditingController();
@@ -85,6 +83,14 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
   int _asInt(TextEditingController c, int fallback) =>
       int.tryParse(c.text.trim()) ?? fallback;
+
+  int _contractPlanIdFromPlan(String selectedPlan) {
+    return selectedPlan == 'スタンダード' ? 2 : 1;
+  }
+
+  int _levelDisplayModeFromDisplayMethod(String selectedDisplayMethod) {
+    return selectedDisplayMethod == '絶対値' ? 2 : 1;
+  }
 
   void _commitBaseline() {
     _baseName = nameCtrl.text.trim();
@@ -184,24 +190,42 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     final scaffold = ScaffoldMessenger.of(context);
     final appState = AppStateScope.of(context);
     final field = appState.getFieldById(widget.fieldId);
+    final fieldID = int.tryParse(widget.fieldId);
+    if (fieldID == null || fieldID <= 0) {
+      scaffold.showSnackBar(
+        const SnackBar(content: Text('field_id が不正です')),
+      );
+      setState(() => _saving = false);
+      return false;
+    }
 
     final upper = int.tryParse(waterUpperCtrl.text) ?? field.alertThUpper;
     final lower = int.tryParse(waterLowerCtrl.text) ?? field.alertThLower;
+    final tempUpper = int.tryParse(tempUpperCtrl.text) ?? 0;
+    final tempLower = int.tryParse(tempLowerCtrl.text) ?? 0;
 
     final payload = {
-      'padid': widget.fieldId,
-      'paddyname': nameCtrl.text.trim().isEmpty
+      'field_id': fieldID,
+      'field_name': nameCtrl.text.trim().isEmpty
           ? field.name
           : nameCtrl.text.trim(),
-      'offset': _serverOffset,
-      'enable_alert': _serverEnableAlert ? 1 : 0,
-      'alert_th_upper': upper,
-      'alert_th_lower': lower,
+      'up_level_limit': upper,
+      'low_level_limit': lower,
+      'up_wtemp_limit': tempUpper,
+      'low_wtemp_limit': tempLower,
+      'contract_plan_id': _contractPlanId > 0
+          ? _contractPlanId
+          : _contractPlanIdFromPlan(plan),
+      'level_display_mode': _levelDisplayMode > 0
+          ? _levelDisplayMode
+          : _levelDisplayModeFromDisplayMethod(displayMethod),
     };
 
     try {
-      final res = await http.post(
-        Uri.parse('$kBaseUrl/app/paddy/update_device'),
+      final res = await http.put(
+        Uri.parse(
+          '$kBaseUrl/api/fields/${Uri.encodeQueryComponent(widget.fieldId)}/settings',
+        ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -212,7 +236,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
       appState.updateField(
         widget.fieldId,
-        name: payload['paddyname'] as String,
+        name: payload['field_name'] as String,
         alertThUpper: upper,
         alertThLower: lower,
 
@@ -290,7 +314,10 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
                 DropdownMenuItem(value: 'スタンダード', child: Text('スタンダード')),
               ],
               onChanged: (v) => {
-                setState(() => plan = v ?? plan),
+                setState(() {
+                  plan = v ?? plan;
+                  _contractPlanId = _contractPlanIdFromPlan(plan);
+                }),
                 _recomputeDirty(),
               },
             ),
@@ -336,7 +363,10 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
                       ],
                       selected: {displayMethod},
                       onSelectionChanged: (newSelection) {
-                        setState(() => displayMethod = newSelection.first);
+                        setState(() {
+                          displayMethod = newSelection.first;
+                          _levelDisplayMode = _levelDisplayModeFromDisplayMethod(displayMethod);
+                        });
                         _recomputeDirty();
                       },
                     ),
@@ -410,59 +440,55 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     });
 
     try {
-      final res = await http.get(Uri.parse('$kBaseUrl/app/paddy/get_devices'));
+      final res = await http.get(
+        Uri.parse(
+          '$kBaseUrl/api/fields/${Uri.encodeQueryComponent(widget.fieldId)}/settings',
+        ),
+      );
       if (!mounted) return;
       if (res.statusCode != 200) {
-        throw Exception('get_devices: ${res.statusCode}');
+        throw Exception('get settings: ${res.statusCode}');
       }
 
-      final List<dynamic> list = json.decode(utf8.decode(res.bodyBytes));
-
-      Map<String, dynamic>? found;
-      for (final it in list) {
-        if (it is Map<String, dynamic> &&
-            it['padid'].toString() == widget.fieldId) {
-          found = it;
-          break;
-        }
-      }
-      if (found == null) {
-        throw Exception('対象の圃場が見つかりません (padid=${widget.fieldId})');
-      }
-
-      final apiField = PaddyField.fromJson(found);
+      final Map<String, dynamic> data = json.decode(utf8.decode(res.bodyBytes));
+      final fieldName = (data['field_name'] ?? '').toString();
+      final upLevelLimit = (data['up_level_limit'] as num?)?.toInt() ?? 0;
+      final lowLevelLimit = (data['low_level_limit'] as num?)?.toInt() ?? 0;
+      final upWtempLimit = (data['up_wtemp_limit'] as num?)?.toInt() ?? 0;
+      final lowWtempLimit = (data['low_wtemp_limit'] as num?)?.toInt() ?? 0;
+      final contractPlanId = (data['contract_plan_id'] as num?)?.toInt() ?? 0;
+      final levelDisplayMode = (data['level_display_mode'] as num?)?.toInt() ?? 1;
 
       final state = AppStateScope.of(context);
       final field = state.getFieldById(widget.fieldId);
 
-      field.name = apiField.name;
-      field.offset = apiField.offset;
-      field.enableAlert = apiField.enableAlert;
-      field.alertThUpper = apiField.alertThUpper;
-      field.alertThLower = apiField.alertThLower;
+      field.name = fieldName;
+      field.alertThUpper = upLevelLimit;
+      field.alertThLower = lowLevelLimit;
 
       state.updateField(
         widget.fieldId,
-        name: apiField.name,
-        offset: apiField.offset,
-        enableAlert: apiField.enableAlert,
-        alertThUpper: apiField.alertThUpper,
-        alertThLower: apiField.alertThLower,
+        name: fieldName,
+        alertThUpper: upLevelLimit,
+        alertThLower: lowLevelLimit,
       );
 
       // UIに反映
       _suppressDirty = true;
       try {
-        nameCtrl.text = apiField.name;
+        nameCtrl.text = fieldName;
         currentCtrl.text = field.waterLevelText;
-        waterUpperCtrl.text = apiField.alertThUpper.toString();
-        waterLowerCtrl.text = apiField.alertThLower.toString();
+        waterUpperCtrl.text = upLevelLimit.toString();
+        waterLowerCtrl.text = lowLevelLimit.toString();
+        tempUpperCtrl.text = upWtempLimit.toString();
+        tempLowerCtrl.text = lowWtempLimit.toString();
+        displayMethod = levelDisplayMode == 2 ? '絶対値' : '相対値';
+        _contractPlanId = contractPlanId;
+        _levelDisplayMode = levelDisplayMode;
 
         remarkCtrl.text = field.remark ?? '';
         drainage = (field.drainageControl) ? 'あり' : 'なし';
 
-        _serverOffset = apiField.offset;
-        _serverEnableAlert = apiField.enableAlert;
       } finally {
         _suppressDirty = false;
       }
@@ -471,9 +497,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       setState(() {
         _commitBaseline();
       });
-
-      _serverOffset = apiField.offset;
-      _serverEnableAlert = apiField.enableAlert;
 
       if (!mounted) return;
       setState(() {});
