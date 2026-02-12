@@ -81,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
               nav.push(
                 MaterialPageRoute(
                   builder: (_) =>
-                      FieldRegisterPlanScreen(fieldName: '圃場（地図追加）', selectedPolyIds: selectedPolyIds),
+                      FieldRegisterPlanScreen(fieldName: '', selectedPolyIds: selectedPolyIds),
                 ),
               );
             },
@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              FieldRegisterPlanScreen(fieldName: '圃場（地図追加）', selectedPolyIds: selectedPolyIds),
+                              FieldRegisterPlanScreen(fieldName: '', selectedPolyIds: selectedPolyIds),
                         ),
                       );
                     },
