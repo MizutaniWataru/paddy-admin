@@ -5,3 +5,10 @@ const String kFieldDbBaseUrl = String.fromEnvironment(
 
 const String kPaddyDbBaseUrl = kFieldDbBaseUrl;
 const String kBaseUrl = kFieldDbBaseUrl;
+
+const String kDebugOwnerId = String.fromEnvironment(
+  'PADDY_DEBUG_OWNER_ID',
+  defaultValue: 'owner_debug_001',
+);
+
+const String kDebugOwnerHeaderName = 'X-Debug-Owner-ID';

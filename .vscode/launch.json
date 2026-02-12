@@ -16,7 +16,8 @@
       "type": "dart",
       "deviceId": "emulator-5554",
       "args": [
-        "--dart-define=PADDY_DB_BASE_URL=http://10.0.2.2:8080"
+        "--dart-define=PADDY_DB_BASE_URL=http://10.0.2.2:8080",
+        "--dart-define=PADDY_DEBUG_OWNER_ID=test-owner-1"
       ]
     }
   ]

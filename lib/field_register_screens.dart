@@ -119,6 +119,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
       'field_name': widget.fieldName,
       'plan': plan,
       'remark': remarkCtrl.text.trim(),
+      'owner_id': kDebugOwnerId,
     };
     if (firstPolyID != null) {
       payload['poly_id'] = firstPolyID;
@@ -126,7 +127,10 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
     final res = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        kDebugOwnerHeaderName: kDebugOwnerId,
+      },
       body: jsonEncode(payload),
     );
 

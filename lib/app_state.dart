@@ -59,7 +59,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final devicesRes = await http.get(Uri.parse('$kBaseUrl/api/fields'));
+      final fieldsUri = Uri.parse(
+        '$kBaseUrl/api/fields',
+      ).replace(queryParameters: {'owner_id': kDebugOwnerId});
+      final devicesRes = await http.get(
+        fieldsUri,
+        headers: {kDebugOwnerHeaderName: kDebugOwnerId},
+      );
       if (devicesRes.statusCode != 200) {
         throw Exception('field list fetch failed: ${devicesRes.statusCode}');
       }
