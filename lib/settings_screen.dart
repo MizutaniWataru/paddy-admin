@@ -92,6 +92,14 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     return selectedDisplayMethod == '絶対値' ? 2 : 1;
   }
 
+  int _settingModeFromSetMethod(String selectedSetMethod) {
+    return selectedSetMethod == '個別' ? 2 : 1;
+  }
+
+  String _setMethodFromSettingMode(int settingMode) {
+    return settingMode == 2 ? '個別' : '一括';
+  }
+
   void _commitBaseline() {
     _baseName = nameCtrl.text.trim();
     _basePlan = plan;
@@ -219,6 +227,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       'level_display_mode': _levelDisplayMode > 0
           ? _levelDisplayMode
           : _levelDisplayModeFromDisplayMethod(displayMethod),
+      'setting_mode': _settingModeFromSetMethod(setMethod),
     };
 
     try {
@@ -458,6 +467,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       final lowWtempLimit = (data['low_wtemp_limit'] as num?)?.toInt() ?? 0;
       final contractPlanId = (data['contract_plan_id'] as num?)?.toInt() ?? 0;
       final levelDisplayMode = (data['level_display_mode'] as num?)?.toInt() ?? 1;
+      final settingMode = (data['setting_mode'] as num?)?.toInt() ?? 1;
 
       final state = AppStateScope.of(context);
       final field = state.getFieldById(widget.fieldId);
@@ -482,6 +492,7 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
         waterLowerCtrl.text = lowLevelLimit.toString();
         tempUpperCtrl.text = upWtempLimit.toString();
         tempLowerCtrl.text = lowWtempLimit.toString();
+        setMethod = _setMethodFromSettingMode(settingMode);
         displayMethod = levelDisplayMode == 2 ? '絶対値' : '相対値';
         _contractPlanId = contractPlanId;
         _levelDisplayMode = levelDisplayMode;
