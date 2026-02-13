@@ -48,7 +48,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
   final currentCtrl = TextEditingController(text: '（仮）');
 
   String plan = 'ベーシック';
-  String setMethod = '一括';
   String displayMethod = '相対値';
 
   bool _loading = true;
@@ -68,7 +67,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
   bool _baselineReady = false;
   late String _baseName;
   late String _basePlan;
-  late String _baseSetMethod;
   late String _baseDisplayMethod;
   late int _baseWaterUpper;
   late int _baseWaterLower;
@@ -92,18 +90,9 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     return selectedDisplayMethod == '絶対値' ? 2 : 1;
   }
 
-  int _settingModeFromSetMethod(String selectedSetMethod) {
-    return selectedSetMethod == '個別' ? 2 : 1;
-  }
-
-  String _setMethodFromSettingMode(int settingMode) {
-    return settingMode == 2 ? '個別' : '一括';
-  }
-
   void _commitBaseline() {
     _baseName = nameCtrl.text.trim();
     _basePlan = plan;
-    _baseSetMethod = setMethod;
     _baseDisplayMethod = displayMethod;
     _baseWaterUpper = _asInt(waterUpperCtrl, 0);
     _baseWaterLower = _asInt(waterLowerCtrl, 0);
@@ -121,7 +110,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
     final changed =
         nameCtrl.text.trim() != _baseName ||
         plan != _basePlan ||
-        setMethod != _baseSetMethod ||
         displayMethod != _baseDisplayMethod ||
         _asInt(waterUpperCtrl, 0) != _baseWaterUpper ||
         _asInt(waterLowerCtrl, 0) != _baseWaterLower ||
@@ -227,7 +215,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       'level_display_mode': _levelDisplayMode > 0
           ? _levelDisplayMode
           : _levelDisplayModeFromDisplayMethod(displayMethod),
-      'setting_mode': _settingModeFromSetMethod(setMethod),
     };
 
     try {
@@ -273,7 +260,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isIndividual = setMethod == '個別';
     final nav = Navigator.of(context);
     return PopScope(
       canPop: !_dirty,
@@ -342,90 +328,74 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
             ),
 
             const SizedBox(height: 12),
-            const Text('設定方法'),
-            const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: '一括', label: Text('一括')),
-                ButtonSegment(value: '個別', label: Text('個別')),
-              ],
-              selected: {setMethod},
-              onSelectionChanged: (newSelection) {
-                setState(() => setMethod = newSelection.first);
-                _recomputeDirty();
-              },
-            ),
-            const SizedBox(height: 12),
+            LabeledSection(
+              title: '個別設定',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('水位表示方法'),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: '相対値', label: Text('相対値')),
+                      ButtonSegment(value: '絶対値', label: Text('絶対値')),
+                    ],
+                    selected: {displayMethod},
+                    onSelectionChanged: (newSelection) {
+                      setState(() {
+                        displayMethod = newSelection.first;
+                        _levelDisplayMode = _levelDisplayModeFromDisplayMethod(displayMethod);
+                      });
+                      _recomputeDirty();
+                    },
+                  ),
 
-            if (isIndividual)
-              LabeledSection(
-                title: '個別設定',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text('水位表示方法'),
-                    const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: '相対値', label: Text('相対値')),
-                        ButtonSegment(value: '絶対値', label: Text('絶対値')),
-                      ],
-                      selected: {displayMethod},
-                      onSelectionChanged: (newSelection) {
-                        setState(() {
-                          displayMethod = newSelection.first;
-                          _levelDisplayMode = _levelDisplayModeFromDisplayMethod(displayMethod);
-                        });
-                        _recomputeDirty();
-                      },
-                    ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: waterUpperCtrl,
+                    decoration: const InputDecoration(labelText: '水位上限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: waterLowerCtrl,
+                    decoration: const InputDecoration(labelText: '水位下限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: tempUpperCtrl,
+                    decoration: const InputDecoration(labelText: '水温上限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: tempLowerCtrl,
+                    decoration: const InputDecoration(labelText: '水温下限'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recomputeDirty(),
+                  ),
+                  const SizedBox(height: 12),
 
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: waterUpperCtrl,
-                      decoration: const InputDecoration(labelText: '水位上限'),
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => _recomputeDirty(),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: waterLowerCtrl,
-                      decoration: const InputDecoration(labelText: '水位下限'),
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => _recomputeDirty(),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: tempUpperCtrl,
-                      decoration: const InputDecoration(labelText: '水温上限'),
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => _recomputeDirty(),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: tempLowerCtrl,
-                      decoration: const InputDecoration(labelText: '水温下限'),
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => _recomputeDirty(),
-                    ),
-                    const SizedBox(height: 12),
-
-                    const Text('排水制御'),
-                    const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'なし', label: Text('なし')),
-                        ButtonSegment(value: 'あり', label: Text('あり')),
-                      ],
-                      selected: {drainage},
-                      onSelectionChanged: (newSelection) {
-                        setState(() => drainage = newSelection.first);
-                        _recomputeDirty();
-                      },
-                    ),
-                  ],
-                ),
+                  const Text('排水制御'),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'なし', label: Text('なし')),
+                      ButtonSegment(value: 'あり', label: Text('あり')),
+                    ],
+                    selected: {drainage},
+                    onSelectionChanged: (newSelection) {
+                      setState(() => drainage = newSelection.first);
+                      _recomputeDirty();
+                    },
+                  ),
+                ],
               ),
+            ),
 
             const SizedBox(height: 12),
             PrimaryButton(
@@ -467,7 +437,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
       final lowWtempLimit = (data['low_wtemp_limit'] as num?)?.toInt() ?? 0;
       final contractPlanId = (data['contract_plan_id'] as num?)?.toInt() ?? 0;
       final levelDisplayMode = (data['level_display_mode'] as num?)?.toInt() ?? 1;
-      final settingMode = (data['setting_mode'] as num?)?.toInt() ?? 1;
 
       final state = AppStateScope.of(context);
       final field = state.getFieldById(widget.fieldId);
@@ -492,7 +461,6 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
         waterLowerCtrl.text = lowLevelLimit.toString();
         tempUpperCtrl.text = upWtempLimit.toString();
         tempLowerCtrl.text = lowWtempLimit.toString();
-        setMethod = _setMethodFromSettingMode(settingMode);
         displayMethod = levelDisplayMode == 2 ? '絶対値' : '相対値';
         _contractPlanId = contractPlanId;
         _levelDisplayMode = levelDisplayMode;

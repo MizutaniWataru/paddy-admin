@@ -311,7 +311,7 @@ class _OpenCloseRequestTimeScreenState
       return 'request item is empty';
     }
 
-    final uri = Uri.parse('$kBaseUrl/api/tasks');
+    final uri = Uri.parse('$kBaseUrl/api/requests');
     final payload = <String, dynamic>{
       'client_id': kDebugOwnerId,
       'requests': items,

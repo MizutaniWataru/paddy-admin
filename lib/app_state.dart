@@ -124,14 +124,14 @@ class AppState extends ChangeNotifier {
       fields.removeWhere((f) => !f.isPending && !seenIds.contains(f.id));
 
       final tasksUri = Uri.parse(
-        '$kBaseUrl/api/tasks',
+        '$kBaseUrl/api/requests',
       ).replace(queryParameters: {'owner_id': kDebugOwnerId});
       final tasksRes = await http.get(
         tasksUri,
         headers: {kDebugOwnerHeaderName: kDebugOwnerId},
       );
       if (tasksRes.statusCode != 200) {
-        throw Exception('task list fetch failed: ${tasksRes.statusCode}');
+        throw Exception('request list fetch failed: ${tasksRes.statusCode}');
       }
 
       final List<dynamic> tasksData = json.decode(
@@ -169,6 +169,34 @@ class AppState extends ChangeNotifier {
       isSyncing = false;
       hasLoadedOnce = true;
       notifyListeners();
+    }
+  }
+
+  Future<String?> cancelOpenCloseRequests() async {
+    try {
+      final uri = Uri.parse(
+        '$kBaseUrl/api/requests',
+      ).replace(queryParameters: {'owner_id': kDebugOwnerId});
+      final res = await http.delete(
+        uri,
+        headers: {kDebugOwnerHeaderName: kDebugOwnerId},
+      );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        String message = 'cancel request failed: ${res.statusCode}';
+        if (res.bodyBytes.isNotEmpty) {
+          final decoded = json.decode(utf8.decode(res.bodyBytes));
+          if (decoded is Map && decoded['error'] != null) {
+            message = decoded['error'].toString();
+          }
+        }
+        return message;
+      }
+
+      _openCloseRequests.clear();
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'cancel request failed: $e';
     }
   }
 

@@ -7,7 +7,6 @@ import 'field_register_screens.dart';
 import 'my_page_screen.dart';
 import 'field_detail_screen.dart';
 import 'open_close_request_screens.dart';
-import 'home_settings_screen.dart';
 
 /// ====== 画面: 圃場一覧 ======
 class HomeScreen extends StatefulWidget {
@@ -44,15 +43,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.settings),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const HomeBulkSettingsScreen()),
-            );
-          },
-        ),
         title: const Text('圃場一覧'),
         actions: [
           IconButton(
@@ -112,8 +102,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: FilledButton.tonal(
                         onPressed: state.isSyncing
                             ? null
-                            : () => _sync(showSnack: true),
-                        child: const Text('更新'),
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final error = await state
+                                    .cancelOpenCloseRequests();
+                                if (!mounted) return;
+                                if (error != null) {
+                                  messenger.showSnackBar(
+                                    SnackBar(content: Text(error)),
+                                  );
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  const SnackBar(content: Text('依頼をキャンセルしました')),
+                                );
+                              },
+                        child: const Text('依頼キャンセル'),
                       ),
                     ),
                     const SizedBox(width: 10),
