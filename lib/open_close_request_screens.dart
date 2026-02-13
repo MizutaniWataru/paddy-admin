@@ -416,15 +416,13 @@ class _OpenCloseRequestTimeScreenState
                         return;
                       }
 
-                      // AppStateへ反映
-                      final reqs = <String, OpenCloseRequest>{};
-                      for (final s in widget.selected) {
-                        reqs[s.fieldId] = OpenCloseRequest(
-                          action: s.action,
-                          scheduledAt: _dtById[s.fieldId] ?? DateTime.now(),
+                      await state.syncDevicesAndLatest();
+                      if (!mounted) return;
+                      if (state.syncError != null) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(state.syncError!)),
                         );
                       }
-                      state.setOpenCloseRequests(reqs);
 
                       // ホームへ戻る
                       nav.pushNamedAndRemoveUntil('/home', (r) => false);

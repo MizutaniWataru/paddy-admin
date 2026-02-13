@@ -80,8 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
               nav.push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      FieldRegisterPlanScreen(fieldName: '', selectedPolyIds: selectedPolyIds),
+                  builder: (_) => FieldRegisterPlanScreen(
+                    fieldName: '',
+                    selectedPolyIds: selectedPolyIds,
+                  ),
                 ),
               );
             },
@@ -108,8 +110,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Expanded(
                       child: FilledButton.tonal(
-                        onPressed: () => state.clearOpenCloseRequests(),
-                        child: const Text('依頼中止'),
+                        onPressed: state.isSyncing
+                            ? null
+                            : () => _sync(showSnack: true),
+                        child: const Text('更新'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -168,12 +172,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     errorText: state.syncError,
                     onRefresh: () => _sync(showSnack: true),
                     onAdd: () async {
-                      final selectedPolyIds = await Navigator.push<List<String>>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const PaddyAddFromMapScreen(),
-                        ),
-                      );
+                      final selectedPolyIds =
+                          await Navigator.push<List<String>>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PaddyAddFromMapScreen(),
+                            ),
+                          );
                       if (!context.mounted) return;
                       if (selectedPolyIds == null || selectedPolyIds.isEmpty) {
                         return;
@@ -182,8 +187,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              FieldRegisterPlanScreen(fieldName: '', selectedPolyIds: selectedPolyIds),
+                          builder: (_) => FieldRegisterPlanScreen(
+                            fieldName: '',
+                            selectedPolyIds: selectedPolyIds,
+                          ),
                         ),
                       );
                     },

@@ -122,6 +122,47 @@ class AppState extends ChangeNotifier {
 
       // Keep pending registrations, remove stale non-pending entries.
       fields.removeWhere((f) => !f.isPending && !seenIds.contains(f.id));
+
+      final tasksUri = Uri.parse(
+        '$kBaseUrl/api/tasks',
+      ).replace(queryParameters: {'owner_id': kDebugOwnerId});
+      final tasksRes = await http.get(
+        tasksUri,
+        headers: {kDebugOwnerHeaderName: kDebugOwnerId},
+      );
+      if (tasksRes.statusCode != 200) {
+        throw Exception('task list fetch failed: ${tasksRes.statusCode}');
+      }
+
+      final List<dynamic> tasksData = json.decode(
+        utf8.decode(tasksRes.bodyBytes),
+      );
+      final requestMap = <String, OpenCloseRequest>{};
+      for (final row in tasksData) {
+        if (row is! Map<String, dynamic>) continue;
+
+        final fieldID = (row['target_field_id'] ?? '').toString();
+        if (fieldID.isEmpty) continue;
+        if (requestMap.containsKey(fieldID)) continue;
+
+        DateTime scheduledAt = DateTime.now();
+        final executionDateRaw = row['execution_date'];
+        if (executionDateRaw != null) {
+          final parsed = DateTime.tryParse(executionDateRaw.toString());
+          if (parsed != null) {
+            scheduledAt = parsed.toLocal();
+          }
+        }
+
+        final taskType = _parseIntOrNull(row['task_type']);
+        requestMap[fieldID] = OpenCloseRequest(
+          action: _actionTextFromTaskType(taskType),
+          scheduledAt: scheduledAt,
+        );
+      }
+      _openCloseRequests
+        ..clear()
+        ..addAll(requestMap);
     } catch (e) {
       syncError = 'API error: $e';
     } finally {
@@ -140,6 +181,27 @@ class AppState extends ChangeNotifier {
   String _formatWaterTempText(int? waterTempC) {
     if (waterTempC == null) return '水温 -';
     return '水温 $waterTempC℃';
+  }
+
+  int? _parseIntOrNull(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  String _actionTextFromTaskType(int? taskType) {
+    switch (taskType) {
+      case 1:
+        return '給水開ける';
+      case 2:
+        return '給水閉じる';
+      case 3:
+        return '排水開ける';
+      case 4:
+        return '排水閉じる';
+      default:
+        return '';
+    }
   }
 
   void updateField(
