@@ -208,7 +208,7 @@ class AppState extends ChangeNotifier {
 
   String _formatWaterTempText(int? waterTempC) {
     if (waterTempC == null) return '水温 -';
-    return '水温 $waterTempC℃';
+    return '水温 $waterTempC°C';
   }
 
   int? _parseIntOrNull(dynamic value) {
@@ -253,7 +253,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  String bulkDisplayMethod = '選択表示';
+  String bulkDisplayMethod = '通常表示';
   int bulkWaterUpper = 0;
   int bulkWaterLower = 0;
   int bulkTempUpper = 0;

@@ -8,7 +8,7 @@ import 'my_page_screen.dart';
 import 'field_detail_screen.dart';
 import 'open_close_request_screens.dart';
 
-/// ====== 逕ｻ髱｢: 蝨・ｴ荳隕ｧ ======
+/// ====== 画面: 圃場一覧 ======
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -43,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('蝨・ｴ荳隕ｧ'),
+        title: const Text('圃場一覧'),
         actions: [
           IconButton(
             icon: state.isSyncing
@@ -112,18 +112,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                   return;
                                 }
                                 messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text('萓晞ｼ繧偵く繝｣繝ｳ繧ｻ繝ｫ縺励∪縺励◆'),
-                                  ),
+                                  const SnackBar(content: Text('依頼をキャンセルしました')),
                                 );
                               },
-                        child: const Text('萓晞ｼ繧ｭ繝｣繝ｳ繧ｻ繝ｫ'),
+                        child: const Text('依頼キャンセル'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: PrimaryButton(
-                        label: '髢矩哩萓晞ｼ',
+                        label: '開閉依頼',
                         onPressed: () {
                           Navigator.push(
                             context,
@@ -140,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return PrimaryButton(
-                label: '髢矩哩萓晞ｼ',
+                label: '開閉依頼',
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -245,7 +243,7 @@ class _WeatherInfoStrip extends StatelessWidget {
               child: _WeatherMetric(
                 icon: Icons.thermostat_outlined,
                 iconColor: Color(0xFFE53935),
-                title: '豌玲ｸｩ',
+                title: '気温',
                 value: '7°C',
               ),
             ),
@@ -320,10 +318,7 @@ class _WeatherMetric extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            value, // 繝繝溘・蛟､
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -353,7 +348,7 @@ class _EmptyFieldsCard extends StatelessWidget {
             const Icon(Icons.grass_outlined, size: 48),
             const SizedBox(height: 8),
             const Text(
-              '蝨・ｴ縺後≠繧翫∪縺帙ｓ',
+              '圃場がありません',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
@@ -381,7 +376,7 @@ class _EmptyFieldsCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.refresh),
-                    label: Text(isSyncing ? '譖ｴ譁ｰ荳ｭ窶ｦ' : '譖ｴ譁ｰ'),
+                    label: Text(isSyncing ? '更新中...' : '更新'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -389,7 +384,7 @@ class _EmptyFieldsCard extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: onAdd,
                     icon: const Icon(Icons.add),
-                    label: const Text('霑ｽ蜉'),
+                    label: const Text('追加'),
                   ),
                 ),
               ],
@@ -468,7 +463,7 @@ class _FieldCard extends StatelessWidget {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          Text(field.pendingText ?? '逋ｻ骭ｲ逕ｳ隲倶ｸｭ'),
+                          Text(field.pendingText ?? '登録申請中'),
                         ],
                       )
                     : Row(
@@ -501,7 +496,7 @@ class _FieldCard extends StatelessWidget {
                               if (isRequesting) ...[
                                 const SizedBox(height: 6),
                                 const Text(
-                                  '菴懈･ｭ萓晞ｼ荳ｭ',
+                                  '開閉依頼中',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -537,7 +532,7 @@ class _LoadingFieldsCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             SizedBox(width: 12),
-            Text('隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ'),
+            Text('読み込み中...'),
           ],
         ),
       ),
@@ -545,7 +540,7 @@ class _LoadingFieldsCard extends StatelessWidget {
   }
 }
 
-/// ====== 逕ｻ髱｢: 繧｢繝励Μ險ｭ螳夲ｼ医・繝ｼ繝縺ｮ豁ｯ霆翫・莉ｮ・・======
+/// ====== 画面: アプリ設定 ======
 class AppSettingsScreen extends StatelessWidget {
   const AppSettingsScreen({super.key});
 
