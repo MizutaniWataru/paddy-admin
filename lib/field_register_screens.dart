@@ -15,27 +15,12 @@ class FieldRegisterMapScreen extends StatefulWidget {
 }
 
 class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
-  final nameCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    nameCtrl.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('圃場登録')),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: '圃場名'),
-            ),
-          ),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -55,18 +40,10 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
               child: PrimaryButton(
                 label: '次へ',
                 onPressed: () {
-                  final fieldName = nameCtrl.text.trim();
-                  if (fieldName.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('圃場名を入力してください')),
-                    );
-                    return;
-                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          FieldRegisterPlanScreen(fieldName: fieldName),
+                      builder: (_) => const FieldRegisterPlanScreen(),
                     ),
                   );
                 },
@@ -80,13 +57,8 @@ class _FieldRegisterMapScreenState extends State<FieldRegisterMapScreen> {
 }
 
 class FieldRegisterPlanScreen extends StatefulWidget {
-  const FieldRegisterPlanScreen({
-    super.key,
-    required this.fieldName,
-    this.selectedPolyIds = const [],
-  });
+  const FieldRegisterPlanScreen({super.key, this.selectedPolyIds = const []});
 
-  final String fieldName;
   final List<String> selectedPolyIds;
 
   @override
@@ -98,128 +70,140 @@ class _RegisterSubmitResult {
   const _RegisterSubmitResult({
     required this.ok,
     this.errorMessage,
-    this.sensorAssigned = true,
-    this.assignmentReason,
+    this.createdCount = 0,
+    this.unassignedCount = 0,
   });
 
   final bool ok;
   final String? errorMessage;
-  final bool sensorAssigned;
-  final String? assignmentReason;
+  final int createdCount;
+  final int unassignedCount;
 }
 
 class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
   static const String _registerPathDefault = '/api/fields';
 
   String plan = 'ベーシック';
-  late final TextEditingController fieldNameCtrl;
   final remarkCtrl = TextEditingController();
   bool _submitting = false;
 
   @override
-  void initState() {
-    super.initState();
-    fieldNameCtrl = TextEditingController(text: widget.fieldName);
-  }
-
-  @override
   void dispose() {
-    fieldNameCtrl.dispose();
     remarkCtrl.dispose();
     super.dispose();
   }
 
-  int? _firstSelectedPolyID() {
-    if (widget.selectedPolyIds.isEmpty) return null;
-    return int.tryParse(widget.selectedPolyIds.first);
+  List<int> _selectedPolyIDs() {
+    if (widget.selectedPolyIds.isEmpty) return const [];
+
+    final ids = <int>[];
+    for (final raw in widget.selectedPolyIds) {
+      final parsed = int.tryParse(raw);
+      if (parsed == null || parsed <= 0) {
+        throw const FormatException('poly_id must be numeric');
+      }
+      ids.add(parsed);
+    }
+    return ids;
   }
 
-  Future<_RegisterSubmitResult> _submitRegisterRequest({
-    required String fieldName,
-  }) async {
-    final firstPolyID = _firstSelectedPolyID();
-    if (widget.selectedPolyIds.isNotEmpty && firstPolyID == null) {
-      throw const FormatException('poly_id must be numeric');
+  String _autoFieldName(int index, {int? polyID}) {
+    if (polyID != null) {
+      return '圃場-$polyID';
     }
+    return '圃場-$index';
+  }
 
-    final uri = Uri.parse('$kBaseUrl$_registerPathDefault');
-    final payload = <String, dynamic>{
-      'field_name': fieldName,
-      'plan': plan,
-      'remark': remarkCtrl.text.trim(),
-      'owner_id': kDebugOwnerId,
-    };
-    if (firstPolyID != null) {
-      payload['poly_id'] = firstPolyID;
-    }
-
-    final res = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        kDebugOwnerHeaderName: kDebugOwnerId,
-      },
-      body: jsonEncode(payload),
-    );
-
-    Map<String, dynamic>? bodyMap;
-    if (res.bodyBytes.isNotEmpty) {
+  Map<String, dynamic>? _decodeJsonMap(http.Response res) {
+    if (res.bodyBytes.isEmpty) return null;
+    try {
       final decoded = json.decode(utf8.decode(res.bodyBytes));
-      if (decoded is Map<String, dynamic>) {
-        bodyMap = decoded;
-      } else if (decoded is Map) {
-        bodyMap = decoded.cast<String, dynamic>();
-      }
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return decoded.cast<String, dynamic>();
+    } catch (_) {
+      return null;
     }
+    return null;
+  }
 
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      final message = (bodyMap?['error'] ?? 'registration request failed')
-          .toString();
-      return _RegisterSubmitResult(ok: false, errorMessage: message);
-    }
+  Future<_RegisterSubmitResult> _submitRegisterRequest() async {
+    final selectedPolyIDs = _selectedPolyIDs();
+    final requestCount = selectedPolyIDs.isEmpty ? 1 : selectedPolyIDs.length;
+    final uri = Uri.parse('$kBaseUrl$_registerPathDefault');
 
-    bool sensorAssigned = true;
-    String? assignmentReason;
-    final assignment = bodyMap?['sensor_assignment'];
-    if (assignment is Map) {
-      final assignmentMap = assignment.cast<dynamic, dynamic>();
-      final status = assignmentMap['status']?.toString().toLowerCase();
-      if (status == 'unassigned') {
-        sensorAssigned = false;
+    var createdCount = 0;
+    var unassignedCount = 0;
+
+    for (var i = 0; i < requestCount; i++) {
+      final polyID = selectedPolyIDs.isEmpty ? null : selectedPolyIDs[i];
+      final payload = <String, dynamic>{
+        'field_name': _autoFieldName(i + 1, polyID: polyID),
+        'plan': plan,
+        'remark': remarkCtrl.text.trim(),
+        'owner_id': kDebugOwnerId,
+      };
+      if (polyID != null) {
+        payload['poly_id'] = polyID;
       }
-      assignmentReason = assignmentMap['reason']?.toString();
+
+      final res = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          kDebugOwnerHeaderName: kDebugOwnerId,
+        },
+        body: jsonEncode(payload),
+      );
+
+      final bodyMap = _decodeJsonMap(res);
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        final message = (bodyMap?['error'] ?? 'registration request failed')
+            .toString();
+        return _RegisterSubmitResult(
+          ok: false,
+          createdCount: createdCount,
+          unassignedCount: unassignedCount,
+          errorMessage: polyID == null ? message : 'poly_id=$polyID: $message',
+        );
+      }
+
+      final assignment = bodyMap?['sensor_assignment'];
+      if (assignment is Map) {
+        final assignmentMap = assignment.cast<dynamic, dynamic>();
+        final status = assignmentMap['status']?.toString().toLowerCase();
+        if (status == 'unassigned') {
+          unassignedCount++;
+        }
+      }
+      createdCount++;
     }
 
     return _RegisterSubmitResult(
       ok: true,
-      sensorAssigned: sensorAssigned,
-      assignmentReason: assignmentReason,
+      createdCount: createdCount,
+      unassignedCount: unassignedCount,
     );
   }
 
   Future<void> _onSubmit() async {
     if (_submitting) return;
-    final fieldName = fieldNameCtrl.text.trim();
-    if (fieldName.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('圃場名を入力してください')));
-      return;
-    }
 
     final state = AppStateScope.of(context);
     final messenger = ScaffoldMessenger.of(context);
 
     setState(() => _submitting = true);
     try {
-      final result = await _submitRegisterRequest(fieldName: fieldName);
+      final result = await _submitRegisterRequest();
       if (!mounted) return;
 
       if (!result.ok) {
+        final partial = result.createdCount > 0
+            ? ' (${result.createdCount}件登録済み)'
+            : '';
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              result.errorMessage ?? 'registration request failed',
+              '${result.errorMessage ?? 'registration request failed'}$partial',
             ),
           ),
         );
@@ -231,11 +215,12 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
 
       Navigator.popUntil(context, (r) => r.isFirst);
       Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false);
-      final suffix = result.sensorAssigned
-          ? ''
-          : ' (sensor not assigned: ${result.assignmentReason ?? 'no candidate'})';
+
+      final suffix = result.unassignedCount > 0
+          ? ' / センサー未割当: ${result.unassignedCount}件'
+          : '';
       messenger.showSnackBar(
-        SnackBar(content: Text('registration submitted$suffix')),
+        SnackBar(content: Text('登録申請を送信しました (${result.createdCount}件)$suffix')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -255,14 +240,13 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: fieldNameCtrl,
-              decoration: const InputDecoration(labelText: '圃場名'),
-              textInputAction: TextInputAction.next,
-              enabled: !_submitting,
+            Text(
+              widget.selectedPolyIds.isEmpty
+                  ? '圃場名は自動で設定されます。'
+                  : '選択したポリゴンごとに圃場名を自動で設定します。',
             ),
             const SizedBox(height: 12),
-            const Text('契約プラン'),
+            const Text('利用プラン'),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: plan,
@@ -279,7 +263,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
               controller: remarkCtrl,
               decoration: const InputDecoration(
                 labelText: '備考',
-                hintText: '地図ルールや期間条件のメモなど',
+                hintText: '地図ルール、補足など',
               ),
               maxLines: 3,
               textInputAction: TextInputAction.newline,
@@ -291,7 +275,7 @@ class _FieldRegisterPlanScreenState extends State<FieldRegisterPlanScreen> {
               minimum: const EdgeInsets.only(bottom: 10),
               top: false,
               child: PrimaryButton(
-                label: _submitting ? '送信中…' : '登録申請',
+                label: _submitting ? '送信中...' : '登録申請',
                 onPressed: _submitting ? null : _onSubmit,
               ),
             ),

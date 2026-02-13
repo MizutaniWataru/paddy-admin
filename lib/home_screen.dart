@@ -8,7 +8,7 @@ import 'my_page_screen.dart';
 import 'field_detail_screen.dart';
 import 'open_close_request_screens.dart';
 
-/// ====== 画面: 圃場一覧 ======
+/// ====== 逕ｻ髱｢: 蝨・ｴ荳隕ｧ ======
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -43,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('圃場一覧'),
+        title: const Text('蝨・ｴ荳隕ｧ'),
         actions: [
           IconButton(
             icon: state.isSyncing
@@ -70,10 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
               nav.push(
                 MaterialPageRoute(
-                  builder: (_) => FieldRegisterPlanScreen(
-                    fieldName: '',
-                    selectedPolyIds: selectedPolyIds,
-                  ),
+                  builder: (_) =>
+                      FieldRegisterPlanScreen(selectedPolyIds: selectedPolyIds),
                 ),
               );
             },
@@ -114,16 +112,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                   return;
                                 }
                                 messenger.showSnackBar(
-                                  const SnackBar(content: Text('依頼をキャンセルしました')),
+                                  const SnackBar(
+                                    content: Text('萓晞ｼ繧偵く繝｣繝ｳ繧ｻ繝ｫ縺励∪縺励◆'),
+                                  ),
                                 );
                               },
-                        child: const Text('依頼キャンセル'),
+                        child: const Text('萓晞ｼ繧ｭ繝｣繝ｳ繧ｻ繝ｫ'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: PrimaryButton(
-                        label: '開閉依頼',
+                        label: '髢矩哩萓晞ｼ',
                         onPressed: () {
                           Navigator.push(
                             context,
@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return PrimaryButton(
-                label: '開閉依頼',
+                label: '髢矩哩萓晞ｼ',
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -192,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) => FieldRegisterPlanScreen(
-                            fieldName: '',
                             selectedPolyIds: selectedPolyIds,
                           ),
                         ),
@@ -246,8 +245,8 @@ class _WeatherInfoStrip extends StatelessWidget {
               child: _WeatherMetric(
                 icon: Icons.thermostat_outlined,
                 iconColor: Color(0xFFE53935),
-                title: '気温',
-                value: '7℃',
+                title: '豌玲ｸｩ',
+                value: '7°C',
               ),
             ),
             _WeatherDivider(),
@@ -256,7 +255,7 @@ class _WeatherInfoStrip extends StatelessWidget {
               child: _WeatherMetric(
                 icon: Icons.water_drop_outlined,
                 iconColor: Color(0xFF1E88E5),
-                title: '12時間予測降水量',
+                title: '12時間降水量',
                 value: '2mm',
               ),
             ),
@@ -322,7 +321,7 @@ class _WeatherMetric extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            value, // ダミー値
+            value, // 繝繝溘・蛟､
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ],
@@ -354,11 +353,11 @@ class _EmptyFieldsCard extends StatelessWidget {
             const Icon(Icons.grass_outlined, size: 48),
             const SizedBox(height: 8),
             const Text(
-              '圃場がありません',
+              '蝨・ｴ縺後≠繧翫∪縺帙ｓ',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            const Text('圃場または更新を行ってください。', textAlign: TextAlign.center),
+            const Text('圃場がありません。地図から追加してください。', textAlign: TextAlign.center),
 
             if (errorText != null) ...[
               const SizedBox(height: 10),
@@ -382,7 +381,7 @@ class _EmptyFieldsCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.refresh),
-                    label: Text(isSyncing ? '更新中…' : '更新'),
+                    label: Text(isSyncing ? '譖ｴ譁ｰ荳ｭ窶ｦ' : '譖ｴ譁ｰ'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -390,7 +389,7 @@ class _EmptyFieldsCard extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: onAdd,
                     icon: const Icon(Icons.add),
-                    label: const Text('追加'),
+                    label: const Text('霑ｽ蜉'),
                   ),
                 ),
               ],
@@ -469,7 +468,7 @@ class _FieldCard extends StatelessWidget {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          Text(field.pendingText ?? '登録申請中'),
+                          Text(field.pendingText ?? '逋ｻ骭ｲ逕ｳ隲倶ｸｭ'),
                         ],
                       )
                     : Row(
@@ -502,7 +501,7 @@ class _FieldCard extends StatelessWidget {
                               if (isRequesting) ...[
                                 const SizedBox(height: 6),
                                 const Text(
-                                  '作業依頼中',
+                                  '菴懈･ｭ萓晞ｼ荳ｭ',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -538,7 +537,7 @@ class _LoadingFieldsCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             SizedBox(width: 12),
-            Text('読み込み中…'),
+            Text('隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ'),
           ],
         ),
       ),
@@ -546,7 +545,7 @@ class _LoadingFieldsCard extends StatelessWidget {
   }
 }
 
-/// ====== 画面: アプリ設定（ホームの歯車の仮） ======
+/// ====== 逕ｻ髱｢: 繧｢繝励Μ險ｭ螳夲ｼ医・繝ｼ繝縺ｮ豁ｯ霆翫・莉ｮ・・======
 class AppSettingsScreen extends StatelessWidget {
   const AppSettingsScreen({super.key});
 
@@ -554,7 +553,7 @@ class AppSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('設定')),
-      body: const ScreenPadding(child: Text('ホーム左上の歯車（仮）')),
+      body: const ScreenPadding(child: Text('ホーム画面の設定')),
     );
   }
 }
