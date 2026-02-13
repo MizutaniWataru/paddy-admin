@@ -3,6 +3,8 @@ import 'package:latlong2/latlong.dart';
 class PaddyPolygon {
   final String polyID;
   final bool isInUse;
+  final String localGovernmentCode;
+  final String localGovernmentName;
   final int? landType;
   final int? issueYear;
   final LatLng centroid;
@@ -15,6 +17,8 @@ class PaddyPolygon {
   const PaddyPolygon({
     required this.polyID,
     this.isInUse = false,
+    this.localGovernmentCode = '',
+    this.localGovernmentName = '',
     required this.centroid,
     required this.outerRing,
     required this.minLat,
@@ -92,6 +96,8 @@ class PaddyPolygon {
     return PaddyPolygon(
       polyID: polyID,
       isInUse: false,
+      localGovernmentCode: '',
+      localGovernmentName: '',
       landType: landType,
       issueYear: issueYear,
       centroid: centroid,
@@ -109,6 +115,12 @@ class PaddyPolygon {
       throw const FormatException('poly_id is missing');
     }
     final isInUse = _asBoolOrFalse(row['in_use']);
+    final localGovernmentCode = (row['local_government_code'] ?? '')
+        .toString()
+        .trim();
+    final localGovernmentName = (row['local_government_name'] ?? '')
+        .toString()
+        .trim();
 
     final ring = _extractOuterRing(row['coordinates']);
     if (ring.length < 3) {
@@ -131,6 +143,8 @@ class PaddyPolygon {
     return PaddyPolygon(
       polyID: polyID,
       isInUse: isInUse,
+      localGovernmentCode: localGovernmentCode,
+      localGovernmentName: localGovernmentName,
       centroid: centroid,
       outerRing: ring,
       minLat: minLat,

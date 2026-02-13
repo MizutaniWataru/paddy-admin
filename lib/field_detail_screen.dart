@@ -537,7 +537,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
             child: Row(
               children: [
                 Expanded(child: Text('ステータス  ${work.status}')),
-                Text('諡・ｽ楢・ ${work.assignee}'),
+                Text('担当者  ${work.assignee}'),
               ],
             ),
           ),
@@ -550,7 +550,7 @@ class _WorkDetailScreenState extends State<WorkDetailScreen> {
                 color: Colors.black12,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Center(child: Text('蜀咏悄')),
+              child: const Center(child: Text('画像')),
             ),
           ),
           const SizedBox(height: 10),
