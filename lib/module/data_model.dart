@@ -1,5 +1,7 @@
 import 'package:latlong2/latlong.dart';
 
+import 'constants.dart';
+
 class FieldData {
   final String id;
   final String name;
@@ -28,8 +30,6 @@ class FieldData {
   });
 
   factory FieldData.fromJson(Map<String, dynamic> json) {
-    const String baseUrl = 'https://';
-
     final dynamic rawID = json['field_id'] ?? json['padid'];
     final dynamic rawName = json['field_name'] ?? json['paddyname'];
     final String img = (json['img'] ?? '').toString();
@@ -48,13 +48,14 @@ class FieldData {
     }
 
     final waterLevel = parseDouble(json['waterlevel'] ?? json['water_level']);
-    final temperature =
-        parseInt(json['temperature'] ?? json['water_temperature']);
+    final temperature = parseInt(
+      json['temperature'] ?? json['water_temperature'],
+    );
 
     return FieldData(
       id: (rawID ?? '').toString(),
       name: (rawName ?? '').toString(),
-      imageUrl: img.isEmpty ? '' : '$baseUrl$img',
+      imageUrl: _resolveImageUrl(img),
       location: LatLng(
         (json['lat'] as num?)?.toDouble() ?? 0,
         (json['lon'] as num?)?.toDouble() ?? 0,
@@ -98,4 +99,12 @@ class FieldData {
       alertThLower: alertThLower ?? this.alertThLower,
     );
   }
+}
+
+String _resolveImageUrl(String raw) {
+  final img = raw.trim();
+  if (img.isEmpty) return '';
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  if (img.startsWith('/')) return '$kBaseUrl$img';
+  return '$kBaseUrl/$img';
 }
