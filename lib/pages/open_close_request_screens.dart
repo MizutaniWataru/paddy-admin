@@ -305,7 +305,15 @@ class _OpenCloseRequestTimeScreenState
       if (taskType < 1 || taskType > 4) {
         return 'task_type is invalid for action: ${s.action}';
       }
-      items.add({'target_field_id': fieldID, 'task_type': taskType});
+      final executionDate = _dtById[s.fieldId];
+      if (executionDate == null) {
+        return 'execution_date is not set for field_id: ${s.fieldId}';
+      }
+      items.add({
+        'target_field_id': fieldID,
+        'task_type': taskType,
+        'execution_date': executionDate.toUtc().toIso8601String(),
+      });
     }
     if (items.isEmpty) {
       return 'request item is empty';
