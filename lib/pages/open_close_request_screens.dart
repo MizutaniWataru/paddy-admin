@@ -2,10 +2,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'app_state.dart';
-import 'common_widgets.dart';
-import 'constants.dart';
-import 'field_models.dart';
+import '../module/app_state.dart';
+import '../module/constants.dart';
+import '../module/field_models.dart';
+import '../widgets/common_widgets.dart';
 
 const _kActions = <String>['給水開ける', '給水閉じる', '排水開ける', '排水閉じる'];
 

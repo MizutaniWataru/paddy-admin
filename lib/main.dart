@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'app_state.dart';
-import 'auth_screens.dart';
-import 'home_screen.dart';
+import 'module/app_state.dart';
+import 'router.dart';
 
 void main() {
   runApp(const AppRoot());
@@ -44,10 +43,7 @@ class _AppRootState extends State<AppRoot> {
             border: OutlineInputBorder(),
           ),
         ),
-        routes: {
-          '/': (_) => const AuthStartScreen(),
-          '/home': (_) => const HomeScreen(),
-        },
+        routes: appRoutes,
       ),
     );
   }

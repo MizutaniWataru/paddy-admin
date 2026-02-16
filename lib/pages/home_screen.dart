@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'common_widgets.dart';
-import 'app_state.dart';
+import '../module/app_state.dart';
+import '../module/field_models.dart';
+import '../widgets/common_widgets.dart';
 import 'paddy_add_map_screen.dart';
-import 'field_models.dart';
 import 'field_register_screens.dart';
 import 'my_page_screen.dart';
 import 'field_detail_screen.dart';
@@ -536,19 +536,6 @@ class _LoadingFieldsCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// ====== 画面: アプリ設定 ======
-class AppSettingsScreen extends StatelessWidget {
-  const AppSettingsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
-      body: const ScreenPadding(child: Text('ホーム画面の設定')),
     );
   }
 }

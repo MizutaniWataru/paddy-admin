@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import 'common_widgets.dart';
-import 'constants.dart';
+import '../module/constants.dart';
+import '../widgets/common_widgets.dart';
 
 class _OwnerInfo {
   const _OwnerInfo({

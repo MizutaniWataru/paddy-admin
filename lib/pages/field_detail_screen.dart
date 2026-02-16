@@ -8,9 +8,9 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'settings_screen.dart';
-import 'app_state.dart';
-import 'field_models.dart';
-import 'constants.dart';
+import '../module/app_state.dart';
+import '../module/constants.dart';
+import '../module/field_models.dart';
 
 enum ChartDataType { waterLevel, temperature }
 enum ChartRange { day1, day3, day7 }

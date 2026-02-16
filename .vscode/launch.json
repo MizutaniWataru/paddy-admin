@@ -2,16 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Flutter (Chrome, local paddy_db)",
-      "request": "launch",
-      "type": "dart",
-      "deviceId": "chrome",
-      "args": [
-        "--dart-define=PADDY_DB_BASE_URL=http://localhost:8080"
-      ]
-    },
-    {
-      "name": "Flutter (Android emulator, local paddy_db)",
+      "name": "Flutter (Android emulator, local paddy_db, debug owner)",
       "request": "launch",
       "type": "dart",
       "deviceId": "emulator-5554",
@@ -19,6 +10,15 @@
         "--dart-define=PADDY_DB_BASE_URL=http://10.0.2.2:8080",
         "--dart-define=PADDY_DEBUG_OWNER_ID=test-owner-1"
       ]
-    }
+    },
+    {
+      "name": "Flutter (Android emulator, local paddy_db, debug non-owner)",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "chrome",
+      "args": [
+        "--dart-define=PADDY_DB_BASE_URL=http://localhost:8080"
+      ]
+    },
   ]
 }

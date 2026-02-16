@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import 'app_state.dart';
-import 'common_widgets.dart';
-import 'constants.dart';
+import '../module/app_state.dart';
+import '../module/constants.dart';
+import '../widgets/common_widgets.dart';
 
 class FieldRegisterMapScreen extends StatefulWidget {
   const FieldRegisterMapScreen({super.key});

@@ -1,38 +1,12 @@
 // lib/settings_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-import 'app_state.dart';
-import 'common_widgets.dart';
-import 'constants.dart';
-
-class NumericRangeFormatter extends TextInputFormatter {
-  final int min;
-  final int max;
-
-  NumericRangeFormatter({required this.min, required this.max});
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    if (newValue.text.isEmpty) {
-      return newValue;
-    }
-    final int? value = int.tryParse(newValue.text);
-    if (value == null) {
-      return oldValue;
-    }
-    if (value >= min && value <= max) {
-      return newValue;
-    }
-    return oldValue;
-  }
-}
+import '../module/app_state.dart';
+import '../module/constants.dart';
+import '../widgets/common_widgets.dart';
 
 /// ====== 画面: 圃場設定 ======
 class FieldSettingsScreen extends StatefulWidget {

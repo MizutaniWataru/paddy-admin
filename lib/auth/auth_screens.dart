@@ -1,7 +1,7 @@
 // lib/auth_screens.dart
 
 import 'package:flutter/material.dart';
-import 'common_widgets.dart';
+import '../widgets/common_widgets.dart';
 
 /// ====== 画面: 認証スタート（ログイン / 新規登録） ======
 class AuthStartScreen extends StatelessWidget {

@@ -9,8 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'constants.dart';
-import 'geojson_paddy.dart';
+import '../module/constants.dart';
+import '../module/geojson_paddy.dart';
 
 class PaddyAddFromMapScreen extends StatefulWidget {
   const PaddyAddFromMapScreen({super.key});
