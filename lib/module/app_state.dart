@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import 'area_model.dart';
 import 'constants.dart';
 import 'data_model.dart';
 import 'field_models.dart';
@@ -10,6 +11,8 @@ import 'field_models.dart';
 /// ====== App State ======
 class AppState extends ChangeNotifier {
   final List<FieldModel> fields = [];
+  final List<AreaModel> areas = [];
+  int? selectedAreaId;
 
   void addPendingField({
     required String name,
@@ -47,6 +50,30 @@ class AppState extends ChangeNotifier {
 
   FieldModel getFieldById(String id) => fields.firstWhere((f) => f.id == id);
 
+  AreaModel? get selectedArea {
+    if (areas.isEmpty) return null;
+    if (selectedAreaId != null) {
+      for (final area in areas) {
+        if (area.id == selectedAreaId) return area;
+      }
+    }
+    return areas.first;
+  }
+
+  List<FieldModel> get visibleFields {
+    final area = selectedArea;
+    if (area == null) return List<FieldModel>.unmodifiable(fields);
+    return List<FieldModel>.unmodifiable(
+      fields.where((f) => f.areaId == area.id),
+    );
+  }
+
+  void setSelectedAreaId(int? areaId) {
+    if (selectedAreaId == areaId) return;
+    selectedAreaId = areaId;
+    notifyListeners();
+  }
+
   bool isSyncing = false;
   String? syncError;
   bool hasLoadedOnce = false;
@@ -59,6 +86,30 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // エリア選択と天気帯を先に確定し、後続の圃場表示を同じ軸でそろえる。
+      final areasUri = Uri.parse(
+        '$kBaseUrl/api/areas',
+      ).replace(queryParameters: {'owner_id': kDebugOwnerId});
+      final areasRes = await http.get(
+        areasUri,
+        headers: {kDebugOwnerHeaderName: kDebugOwnerId},
+      );
+      if (areasRes.statusCode != 200) {
+        throw Exception('area list fetch failed: ${areasRes.statusCode}');
+      }
+
+      final List<dynamic> areasData = json.decode(
+        utf8.decode(areasRes.bodyBytes),
+      );
+      final nextAreas = <AreaModel>[];
+      for (final row in areasData) {
+        if (row is! Map<String, dynamic>) continue;
+        final area = AreaModel.fromJson(row);
+        if (area.id <= 0) continue;
+        nextAreas.add(area);
+      }
+      _applyAreas(nextAreas);
+
       final fieldsUri = Uri.parse(
         '$kBaseUrl/api/fields',
       ).replace(queryParameters: {'owner_id': kDebugOwnerId});
@@ -93,6 +144,8 @@ class AppState extends ChangeNotifier {
           existing.imageUrl = apiField.imageUrl;
           existing.waterLevelText = waterLevelText;
           existing.waterTempText = waterTempText;
+          existing.areaId = apiField.areaId;
+          existing.areaName = apiField.areaName;
 
           existing.offset = apiField.offset;
           existing.enableAlert = apiField.enableAlert;
@@ -115,6 +168,8 @@ class AppState extends ChangeNotifier {
               enableAlert: apiField.enableAlert,
               alertThUpper: apiField.alertThUpper,
               alertThLower: apiField.alertThLower,
+              areaId: apiField.areaId,
+              areaName: apiField.areaName,
             ),
           );
         }
@@ -169,6 +224,24 @@ class AppState extends ChangeNotifier {
       isSyncing = false;
       hasLoadedOnce = true;
       notifyListeners();
+    }
+  }
+
+  void _applyAreas(List<AreaModel> nextAreas) {
+    areas
+      ..clear()
+      ..addAll(nextAreas);
+
+    if (areas.isEmpty) {
+      selectedAreaId = null;
+      return;
+    }
+
+    final hasSelected =
+        selectedAreaId != null &&
+        areas.any((area) => area.id == selectedAreaId);
+    if (!hasSelected) {
+      selectedAreaId = areas.first.id;
     }
   }
 

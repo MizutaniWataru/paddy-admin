@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../module/area_model.dart';
 import '../module/app_state.dart';
 import '../module/field_models.dart';
 import '../widgets/common_widgets.dart';
@@ -156,13 +157,18 @@ class _HomeScreenState extends State<HomeScreen> {
       body: AnimatedBuilder(
         animation: state,
         builder: (_, _) {
+          final visibleFields = state.visibleFields;
           return RefreshIndicator(
             onRefresh: () => _sync(showSnack: false),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               children: [
-                const _WeatherInfoStrip(),
+                _AreaSelectorCard(state: state),
+
+                const SizedBox(height: 10),
+
+                _WeatherInfoStrip(area: state.selectedArea),
 
                 const SizedBox(height: 10),
 
@@ -196,8 +202,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   )
+                else if (visibleFields.isEmpty)
+                  _EmptyAreaFieldsCard(areaName: state.selectedArea?.name ?? '')
                 else
-                  ...state.fields.map(
+                  ...visibleFields.map(
                     (f) => _FieldCard(
                       field: f,
                       isRequesting: state.isOpenCloseRequested(f.id),
@@ -212,12 +220,73 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _AreaSelectorCard extends StatelessWidget {
+  const _AreaSelectorCard({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.areas.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('表示エリア', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            InputDecorator(
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  isExpanded: true,
+                  value: state.selectedArea?.id,
+                  items: state.areas
+                      .map(
+                        (area) => DropdownMenuItem<int>(
+                          value: area.id,
+                          child: Text('${area.name} (${area.fieldCount})'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: state.isSyncing
+                      ? null
+                      : (value) {
+                          state.setSelectedAreaId(value);
+                        },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _WeatherInfoStrip extends StatelessWidget {
-  const _WeatherInfoStrip();
+  const _WeatherInfoStrip({required this.area});
+
+  final AreaModel? area;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final weather = _weatherPresentation(area?.weatherCode);
+    final temperatureText = _formatDouble(area?.tempC, suffix: '°C');
+    final rainText = _formatDouble(area?.rain12hMm, suffix: 'mm');
+    final areaName = (area?.name ?? '').trim();
 
     return Card(
       elevation: 0,
@@ -228,40 +297,106 @@ class _WeatherInfoStrip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
-        child: Row(
-          children: const [
-            Expanded(
-              child: _WeatherMetric(
-                icon: Icons.wb_sunny_outlined,
-                iconColor: Color(0xFFF4C542),
-                title: '天気',
-                value: '晴れ',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              areaName.isEmpty ? 'エリア情報' : '$areaName の観測値',
+              style: TextStyle(
+                color: cs.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            _WeatherDivider(),
-            Expanded(
-              child: _WeatherMetric(
-                icon: Icons.thermostat_outlined,
-                iconColor: Color(0xFFE53935),
-                title: '気温',
-                value: '7°C',
-              ),
-            ),
-            _WeatherDivider(),
-            Expanded(
-              flex: 2,
-              child: _WeatherMetric(
-                icon: Icons.water_drop_outlined,
-                iconColor: Color(0xFF1E88E5),
-                title: '12時間降水量',
-                value: '2mm',
-              ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _WeatherMetric(
+                    icon: weather.icon,
+                    iconColor: weather.color,
+                    title: '天気',
+                    value: weather.label,
+                  ),
+                ),
+                const _WeatherDivider(),
+                Expanded(
+                  child: _WeatherMetric(
+                    icon: Icons.thermostat_outlined,
+                    iconColor: const Color(0xFFE53935),
+                    title: '気温',
+                    value: temperatureText,
+                  ),
+                ),
+                const _WeatherDivider(),
+                Expanded(
+                  flex: 2,
+                  child: _WeatherMetric(
+                    icon: Icons.water_drop_outlined,
+                    iconColor: const Color(0xFF1E88E5),
+                    title: '12時間降水量',
+                    value: rainText,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _WeatherPresentation {
+  const _WeatherPresentation({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+}
+
+_WeatherPresentation _weatherPresentation(int? code) {
+  switch (code) {
+    case 1:
+      return const _WeatherPresentation(
+        label: '晴れ',
+        icon: Icons.wb_sunny_outlined,
+        color: Color(0xFFF4C542),
+      );
+    case 2:
+      return const _WeatherPresentation(
+        label: 'くもり',
+        icon: Icons.cloud_outlined,
+        color: Color(0xFF78909C),
+      );
+    case 3:
+      return const _WeatherPresentation(
+        label: '雨',
+        icon: Icons.umbrella_outlined,
+        color: Color(0xFF1E88E5),
+      );
+    default:
+      return const _WeatherPresentation(
+        label: '--',
+        icon: Icons.help_outline,
+        color: Color(0xFF9E9E9E),
+      );
+  }
+}
+
+String _formatDouble(double? value, {required String suffix}) {
+  if (value == null) {
+    return '--';
+  }
+  final rounded = value.roundToDouble();
+  if ((value - rounded).abs() < 0.05) {
+    return '${rounded.toInt()}$suffix';
+  }
+  return '${value.toStringAsFixed(1)}$suffix';
 }
 
 class _WeatherDivider extends StatelessWidget {
@@ -320,6 +455,39 @@ class _WeatherMetric extends StatelessWidget {
           const SizedBox(height: 4),
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyAreaFieldsCard extends StatelessWidget {
+  const _EmptyAreaFieldsCard({required this.areaName});
+
+  final String areaName;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = areaName.trim().isEmpty ? '選択中のエリア' : areaName.trim();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Icon(Icons.location_city_outlined, size: 40),
+            const SizedBox(height: 8),
+            Text(
+              '$label に表示できる圃場がありません',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'エリアに紐づく圃場を登録するとここに一覧表示されます。',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }

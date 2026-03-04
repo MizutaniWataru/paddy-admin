@@ -20,6 +20,8 @@ class FieldModel {
     this.enableAlert = false,
     this.alertThUpper = 0,
     this.alertThLower = 0,
+    this.areaId,
+    this.areaName,
   });
 
   final String id;
@@ -44,6 +46,8 @@ class FieldModel {
   bool enableAlert;
   int alertThUpper;
   int alertThLower;
+  int? areaId;
+  String? areaName;
 
   final List<WorkLog> works;
 }

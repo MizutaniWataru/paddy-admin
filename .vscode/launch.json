@@ -17,7 +17,7 @@
       "type": "dart",
       "deviceId": "chrome",
       "args": [
-        "--dart-define=PADDY_DB_BASE_URL=http://localhost:8080"
+        "--dart-define=PADDY_DB_BASE_URL=http://10.0.2.2:8080"
       ]
     },
   ]

@@ -7,6 +7,8 @@ class FieldData {
   final String name;
   final String imageUrl;
   final String? time;
+  final int? areaId;
+  final String? areaName;
   final int? temperature;
   final double? waterLevel;
   final LatLng location;
@@ -20,6 +22,8 @@ class FieldData {
     required this.name,
     required this.imageUrl,
     required this.time,
+    this.areaId,
+    this.areaName,
     this.temperature,
     required this.waterLevel,
     required this.location,
@@ -48,6 +52,7 @@ class FieldData {
     }
 
     final waterLevel = parseDouble(json['waterlevel'] ?? json['water_level']);
+    final areaId = parseInt(json['area_id']);
     final temperature = parseInt(
       json['temperature'] ?? json['water_temperature'],
     );
@@ -56,6 +61,8 @@ class FieldData {
       id: (rawID ?? '').toString(),
       name: (rawName ?? '').toString(),
       imageUrl: _resolveImageUrl(img),
+      areaId: areaId,
+      areaName: (json['area_name'] ?? '').toString(),
       location: LatLng(
         (json['lat'] as num?)?.toDouble() ?? 0,
         (json['lon'] as num?)?.toDouble() ?? 0,
@@ -77,6 +84,8 @@ class FieldData {
     String? name,
     String? imageUrl,
     String? time,
+    int? areaId,
+    String? areaName,
     int? temperature,
     double? waterLevel,
     LatLng? location,
@@ -90,6 +99,8 @@ class FieldData {
       name: name ?? this.name,
       imageUrl: imageUrl ?? this.imageUrl,
       time: time ?? this.time,
+      areaId: areaId ?? this.areaId,
+      areaName: areaName ?? this.areaName,
       temperature: temperature ?? this.temperature,
       waterLevel: waterLevel ?? this.waterLevel,
       location: location ?? this.location,
